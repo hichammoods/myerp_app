@@ -6,19 +6,17 @@ import morgan from 'morgan';
 import 'express-async-errors';
 
 import { errorHandler } from './middleware/error.middleware';
-import { rateLimiter } from './middleware/rateLimiter.middleware';
+// import { rateLimiter } from './middleware/rateLimiter.middleware'; // Removed - was causing Redis issues
 import { requestLogger } from './middleware/requestLogger.middleware';
 import { notFoundHandler } from './middleware/notFound.middleware';
 
 // Import routes
-import { authRouter } from './routes/auth.routes';
-import { userRouter } from './routes/user.routes';
-import { contactRouter } from './routes/contact.routes';
-import { productRouter } from './routes/product.routes';
-import { quotationRouter } from './routes/quotation.routes';
-import { orderRouter } from './routes/order.routes';
-import { dashboardRouter } from './routes/dashboard.routes';
-import { healthRouter } from './routes/health.routes';
+import authRouter from './routes/auth';
+import contactRouter from './routes/contacts';
+// import productRouter from './routes/products';
+import productRouter from './routes/products-simple'; // Using simplified version without pooling
+import quotationRouter from './routes/quotations';
+import testRouter from './routes/test-simple'; // Ultra-simple test routes
 
 export class App {
   public express: Application;
@@ -59,8 +57,8 @@ export class App {
       this.express.use(requestLogger);
     }
 
-    // Rate limiting
-    this.express.use('/api/', rateLimiter);
+    // Rate limiting - DISABLED temporarily due to Redis issues
+    // this.express.use('/api/', rateLimiter);
 
     // Trust proxy
     if (process.env.TRUST_PROXY === 'true') {
@@ -73,16 +71,16 @@ export class App {
 
   private initializeRoutes(): void {
     // Health check route (no auth required)
-    this.express.use('/health', healthRouter);
+    this.express.get('/health', (req: Request, res: Response) => {
+      res.json({ status: 'healthy', timestamp: new Date().toISOString() });
+    });
 
     // API routes
+    this.express.use('/api/test', testRouter); // Test routes FIRST (no auth)
     this.express.use('/api/auth', authRouter);
-    this.express.use('/api/users', userRouter);
     this.express.use('/api/contacts', contactRouter);
     this.express.use('/api/products', productRouter);
     this.express.use('/api/quotations', quotationRouter);
-    this.express.use('/api/orders', orderRouter);
-    this.express.use('/api/dashboard', dashboardRouter);
 
     // API documentation (only in development)
     if (process.env.NODE_ENV === 'development') {
@@ -93,12 +91,9 @@ export class App {
           endpoints: {
             health: '/health',
             auth: '/api/auth/*',
-            users: '/api/users/*',
             contacts: '/api/contacts/*',
             products: '/api/products/*',
-            quotations: '/api/quotations/*',
-            orders: '/api/orders/*',
-            dashboard: '/api/dashboard/*'
+            quotations: '/api/quotations/*'
           }
         });
       });

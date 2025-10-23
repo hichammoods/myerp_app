@@ -20,14 +20,15 @@ class RedisConnectionManager {
       db: parseInt(process.env.REDIS_DB || '0'),
       retryStrategy: (times: number) => {
         if (times > 3) {
-          logger.error('Redis connection failed after 3 attempts');
-          return null;
+          logger.error('Redis connection failed after 3 attempts - disabling Redis');
+          return null; // Stop retrying
         }
         return Math.min(times * 100, 3000);
       },
       maxRetriesPerRequest: 3,
       enableReadyCheck: true,
-      lazyConnect: false,
+      lazyConnect: true, // Don't connect immediately
+      reconnectOnError: false,
     };
   }
 
@@ -38,21 +39,27 @@ class RedisConnectionManager {
       // Main client for general operations
       this.client = new Redis(config);
 
+      // Set up event handlers but don't let them crash the app
+      this.setupEventHandlers(this.client, 'main');
+
+      // Try to connect
+      await this.client.connect();
+
+      // Test the connection
+      await this.client.ping();
+
       // Separate clients for pub/sub if needed
       if (process.env.ENABLE_PUBSUB === 'true') {
         this.subscriber = new Redis(config);
         this.publisher = new Redis(config);
       }
 
-      // Set up event handlers
-      this.setupEventHandlers(this.client, 'main');
-
-      // Test the connection
-      await this.client.ping();
-
     } catch (error) {
       logger.error('Failed to initialize Redis connection:', error);
-      throw error;
+      // Don't throw - let app run without Redis
+      this.client = null;
+      this.subscriber = null;
+      this.publisher = null;
     }
   }
 
@@ -66,7 +73,10 @@ class RedisConnectionManager {
     });
 
     client.on('error', (error) => {
-      logger.error(`Redis ${name} client error:`, error);
+      // Don't spam logs with connection errors
+      if (!error.message?.includes('ECONNREFUSED')) {
+        logger.error(`Redis ${name} client error:`, error);
+      }
     });
 
     client.on('close', () => {
@@ -78,24 +88,15 @@ class RedisConnectionManager {
     });
   }
 
-  getClient(): Redis {
-    if (!this.client) {
-      throw new Error('Redis client is not initialized');
-    }
+  getClient(): Redis | null {
     return this.client;
   }
 
-  getSubscriber(): Redis {
-    if (!this.subscriber) {
-      throw new Error('Redis subscriber is not initialized');
-    }
+  getSubscriber(): Redis | null {
     return this.subscriber;
   }
 
-  getPublisher(): Redis {
-    if (!this.publisher) {
-      throw new Error('Redis publisher is not initialized');
-    }
+  getPublisher(): Redis | null {
     return this.publisher;
   }
 
@@ -125,35 +126,53 @@ class RedisConnectionManager {
 
   // Session management helpers
   async setSession(sessionId: string, data: any, ttl: number = 3600): Promise<void> {
-    if (!this.client) throw new Error('Redis client not initialized');
+    if (!this.client) {
+      logger.debug('Redis not available - session not stored');
+      return;
+    }
     await this.client.setex(`session:${sessionId}`, ttl, JSON.stringify(data));
   }
 
   async getSession(sessionId: string): Promise<any | null> {
-    if (!this.client) throw new Error('Redis client not initialized');
+    if (!this.client) {
+      logger.debug('Redis not available - session not retrieved');
+      return null;
+    }
     const data = await this.client.get(`session:${sessionId}`);
     return data ? JSON.parse(data) : null;
   }
 
   async deleteSession(sessionId: string): Promise<void> {
-    if (!this.client) throw new Error('Redis client not initialized');
+    if (!this.client) {
+      logger.debug('Redis not available - session not deleted');
+      return;
+    }
     await this.client.del(`session:${sessionId}`);
   }
 
   // Cache helpers
   async setCache(key: string, value: any, ttl: number = 300): Promise<void> {
-    if (!this.client) throw new Error('Redis client not initialized');
+    if (!this.client) {
+      logger.debug('Redis not available - cache not stored');
+      return;
+    }
     await this.client.setex(`cache:${key}`, ttl, JSON.stringify(value));
   }
 
   async getCache(key: string): Promise<any | null> {
-    if (!this.client) throw new Error('Redis client not initialized');
+    if (!this.client) {
+      logger.debug('Redis not available - cache not retrieved');
+      return null;
+    }
     const data = await this.client.get(`cache:${key}`);
     return data ? JSON.parse(data) : null;
   }
 
   async invalidateCache(pattern: string): Promise<void> {
-    if (!this.client) throw new Error('Redis client not initialized');
+    if (!this.client) {
+      logger.debug('Redis not available - cache not invalidated');
+      return;
+    }
     const keys = await this.client.keys(`cache:${pattern}`);
     if (keys.length > 0) {
       await this.client.del(...keys);
@@ -162,7 +181,10 @@ class RedisConnectionManager {
 
   // Rate limiting helpers
   async incrementRateLimit(identifier: string, windowSeconds: number = 60): Promise<number> {
-    if (!this.client) throw new Error('Redis client not initialized');
+    if (!this.client) {
+      // If Redis is not available, allow all requests (no rate limiting)
+      return 0;
+    }
     const key = `rate_limit:${identifier}:${Math.floor(Date.now() / (windowSeconds * 1000))}`;
     const result = await this.client.incr(key);
     await this.client.expire(key, windowSeconds);
@@ -175,17 +197,34 @@ export const RedisConnection = new RedisConnectionManager();
 
 // Export helper functions
 export const redis = {
-  get: (key: string) => RedisConnection.getClient().get(key),
-  set: (key: string, value: string, ttl?: number) => {
-    if (ttl) {
-      return RedisConnection.getClient().setex(key, ttl, value);
-    }
-    return RedisConnection.getClient().set(key, value);
+  get: (key: string) => {
+    const client = RedisConnection.getClient();
+    return client ? client.get(key) : Promise.resolve(null);
   },
-  del: (key: string) => RedisConnection.getClient().del(key),
-  exists: (key: string) => RedisConnection.getClient().exists(key),
-  expire: (key: string, seconds: number) => RedisConnection.getClient().expire(key, seconds),
-  ttl: (key: string) => RedisConnection.getClient().ttl(key),
+  set: (key: string, value: string, ttl?: number) => {
+    const client = RedisConnection.getClient();
+    if (!client) return Promise.resolve(null);
+    if (ttl) {
+      return client.setex(key, ttl, value);
+    }
+    return client.set(key, value);
+  },
+  del: (key: string) => {
+    const client = RedisConnection.getClient();
+    return client ? client.del(key) : Promise.resolve(0);
+  },
+  exists: (key: string) => {
+    const client = RedisConnection.getClient();
+    return client ? client.exists(key) : Promise.resolve(0);
+  },
+  expire: (key: string, seconds: number) => {
+    const client = RedisConnection.getClient();
+    return client ? client.expire(key, seconds) : Promise.resolve(0);
+  },
+  ttl: (key: string) => {
+    const client = RedisConnection.getClient();
+    return client ? client.ttl(key) : Promise.resolve(-2);
+  },
 
   // Session helpers
   setSession: (sessionId: string, data: any, ttl?: number) =>

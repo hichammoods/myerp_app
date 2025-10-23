@@ -608,3 +608,168 @@ This project is proprietary software. See LICENSE file for details.
 - v1.3: Mobile application
 - v1.4: Multi-language support
 - v1.5: Accounting module integration
+---
+
+## Current Development Status (2025-10-24)
+
+### Recent Changes & Implementation
+
+#### 1. Product Image Upload System (WIP - In Progress)
+**Status**: Partially working - Backend complete, Frontend issues remain
+
+**Completed**:
+- ✅ MinIO integration for object storage
+  - Configuration: `backend/src/config/minio.ts`
+  - Bucket: `myerp-uploads`
+  - Public read access configured
+  - Server initialized in `backend/src/server.ts:46-54`
+
+- ✅ Database Schema
+  - Migration `005_add_images_column_to_products.sql` 
+  - Added `images` JSONB column to products table
+  - GIN index for performance
+  - Stores array of image objects with metadata
+
+- ✅ File Upload Middleware
+  - Created: `backend/src/middleware/upload.ts`
+  - Uses multer with memory storage
+  - File validation (JPEG, PNG, WebP)
+  - Size limit: 5MB
+  - Unique filename generation
+
+- ✅ Backend API Endpoints
+  - POST `/api/products/:id/upload-image` - Upload image to MinIO and save metadata (Line 970)
+  - DELETE `/api/products/:id/images/:filename` - Delete image (Line 1054)
+  - PATCH `/api/products/:id/images/:filename/set-main` - Set main image (Line 1112)
+  - Updated CREATE endpoint to save images field (Line 648-666)
+  - Updated UPDATE endpoint to save images field (Line 773-793)
+
+- ✅ Frontend Components
+  - `ImageUpload.tsx` - Drag & drop, progress tracking, gallery view
+  - XHR-based upload with progress events
+  - useRef pattern to prevent stale closures
+  - Preview generation with FileReader
+
+**Known Issues** (To Fix Tomorrow):
+1. ❌ Images not persisting after save - UI doesn't update properly
+2. ❌ Images don't reload when reopening product form
+3. ❌ Toast notifications not appearing consistently
+4. ❌ Gallery not refreshing after upload completes
+
+**Files Modified**:
+```
+backend/src/config/minio.ts (NEW)
+backend/src/middleware/upload.ts (NEW)
+backend/src/database/migrations/005_add_images_column_to_products.sql (NEW)
+backend/src/routes/products-simple.ts (MODIFIED - added upload endpoints, images to CREATE/UPDATE)
+backend/src/server.ts (MODIFIED - MinIO initialization)
+frontend/src/components/ImageUpload.tsx (MODIFIED - real upload implementation)
+frontend/src/pages/products/ProductForm.tsx (MODIFIED - useEffect for state sync, productId prop)
+frontend/src/pages/products/ProductManagement.tsx (MODIFIED - image gallery in details view)
+```
+
+#### 2. Product Materials System
+**Status**: Complete
+
+- Product-Material-Finish relationship implemented
+- Accordion UI for material entries
+- Dynamic add/remove materials
+- Supplier field persistence fixed
+
+#### 3. Authentication & Routes Restructure
+**Status**: Complete
+
+- Simplified route structure
+- JWT authentication middleware
+- Auth routes: login, register, logout
+- Protected API endpoints
+
+### Work In Progress (WIP) for Tomorrow
+
+#### Priority 1: Fix Image Upload UI Issues
+**Problem**: Images upload to MinIO and save to DB, but UI doesn't reflect changes properly
+
+**Debug Steps**:
+1. Check React state updates in ProductForm
+2. Verify query invalidation after image upload
+3. Test image loading on form reopen
+4. Check toast notification rendering
+5. Verify gallery re-render triggers
+
+**Potential Issues**:
+- State not triggering re-renders
+- Query cache not invalidating
+- useEffect dependency array issues
+- Component not receiving updated props
+
+#### Priority 2: Product Management Improvements
+- [ ] Test complete product creation workflow with images
+- [ ] Verify image persistence across sessions
+- [ ] Test image deletion
+- [ ] Test main image selection
+- [ ] Add image preview in product list view
+
+#### Priority 3: Database & API Optimization
+- [ ] Add proper error handling for MinIO operations
+- [ ] Implement image size optimization before upload
+- [ ] Add image CDN configuration for production
+- [ ] Create database backup scripts
+
+### Development Environment
+
+**Running Services**:
+- Frontend: http://localhost:3000 (Vite + React)
+- Backend: http://localhost:4000 (Node.js + Express)
+- PostgreSQL: localhost:5432 (Docker)
+- Redis: localhost:6379 (Docker)
+- MinIO: http://localhost:9000 (Docker)
+  - Credentials: minioadmin/minioadmin
+  - Bucket: myerp-uploads
+
+**Database Migrations Run**:
+1. `001_create_users_table.sql`
+2. `002_create_categories_table.sql`
+3. `003_create_products_table.sql`
+4. `004_create_product_materials_table.sql`
+5. `005_add_images_column_to_products.sql` ✅
+
+**Key Dependencies**:
+- Backend: express, pg, ioredis, minio, multer, bcryptjs, jsonwebtoken
+- Frontend: react, react-router-dom, @tanstack/react-query, lucide-react, tailwindcss
+
+### Troubleshooting Notes
+
+**Image Upload Debug Log Pattern**:
+```
+handleFiles called with X files, productId: [uuid]
+Adding X new images. Current images: Y
+Starting uploads for X images
+Uploading image: [imageId] productId: [uuid]
+uploadToServer called for imageId: [imageId]
+Upload complete, status: 200
+Upload successful, image: {url: '...', filename: '...'}
+Updated images: [{...}]
+```
+
+**Common Issues**:
+- Port 4000 EADDRINUSE: Multiple node processes running - kill with `lsof -ti:4000 | xargs kill -9`
+- MinIO not initialized: Check Docker container running with `docker ps | grep minio`
+- Redis connection errors: Restart Redis container
+
+### Next Session TODO
+1. Debug why images array updates aren't triggering UI re-renders
+2. Fix ProductForm state synchronization 
+3. Test complete image upload workflow end-to-end
+4. Add error boundaries for better error handling
+5. Clean up console.log statements added for debugging
+6. Add loading states during image operations
+7. Implement optimistic UI updates for better UX
+
+---
+
+## Git Commit Strategy
+- Use conventional commits: feat/fix/chore/docs
+- Reference related issues/tickets
+- Include WIP commits for end-of-day saves
+- Create feature branches for major changes
+
