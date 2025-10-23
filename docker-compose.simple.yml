@@ -1,0 +1,90 @@
+version: '3.8'
+
+# Simple, practical setup for a small company
+# No over-engineering - just what you need
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: myerp_postgres
+    environment:
+      POSTGRES_DB: myerp_db
+      POSTGRES_USER: myerp
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-myerp_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backups:/backups  # Simple backup directory
+    restart: unless-stopped
+    networks:
+      - myerp_network
+
+  # Redis for sessions and caching
+  redis:
+    image: redis:7-alpine
+    container_name: myerp_redis
+    command: redis-server --requirepass ${REDIS_PASSWORD:-myerp_redis_password}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - myerp_network
+
+  # MinIO for file storage (quotation PDFs, product images)
+  minio:
+    image: minio/minio:latest
+    container_name: myerp_minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"  # MinIO console (optional, can be removed in production)
+    volumes:
+      - minio_data:/data
+    restart: unless-stopped
+    networks:
+      - myerp_network
+
+  # Your application will run here once built
+  # backend:
+  #   build: ./backend
+  #   container_name: myerp_backend
+  #   environment:
+  #     NODE_ENV: production
+  #     DATABASE_URL: postgresql://myerp:${DB_PASSWORD}@postgres:5432/myerp_db
+  #     REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+  #   ports:
+  #     - "4000:4000"
+  #   depends_on:
+  #     - postgres
+  #     - redis
+  #     - minio
+  #   restart: unless-stopped
+  #   networks:
+  #     - myerp_network
+
+  # frontend:
+  #   build: ./frontend
+  #   container_name: myerp_frontend
+  #   ports:
+  #     - "80:80"
+  #   depends_on:
+  #     - backend
+  #   restart: unless-stopped
+  #   networks:
+  #     - myerp_network
+
+networks:
+  myerp_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:

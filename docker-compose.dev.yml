@@ -1,0 +1,127 @@
+version: '3.8'
+
+# Simplified Development Environment
+# This file contains only the essential services for initial development
+
+services:
+  # PostgreSQL Database - ESSENTIAL
+  postgres:
+    image: postgres:15-alpine
+    container_name: myerp_postgres
+    environment:
+      POSTGRES_DB: myerp_db
+      POSTGRES_USER: myerp
+      POSTGRES_PASSWORD: myerp_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U myerp -d myerp_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - myerp_network
+
+  # Redis Cache - ESSENTIAL for sessions
+  redis:
+    image: redis:7-alpine
+    container_name: myerp_redis
+    command: redis-server --requirepass myerp_redis_password
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - myerp_network
+
+  # MinIO Object Storage - ESSENTIAL for file uploads
+  minio:
+    image: minio/minio:latest
+    container_name: myerp_minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - myerp_network
+
+  # Mailhog - ESSENTIAL for email testing in development
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: myerp_mailhog
+    ports:
+      - "1025:1025"  # SMTP port
+      - "8025:8025"  # Web UI to view emails
+    networks:
+      - myerp_network
+
+  # Backend API - Will be added after creating the application
+  # backend:
+  #   build:
+  #     context: ./backend
+  #     dockerfile: Dockerfile
+  #   container_name: myerp_backend
+  #   environment:
+  #     NODE_ENV: development
+  #     DATABASE_URL: postgresql://myerp:myerp_password@postgres:5432/myerp_db
+  #     REDIS_URL: redis://:myerp_redis_password@redis:6379
+  #     MINIO_ENDPOINT: minio
+  #     MINIO_PORT: 9000
+  #     MINIO_ACCESS_KEY: minioadmin
+  #     MINIO_SECRET_KEY: minioadmin
+  #   ports:
+  #     - "4000:4000"
+  #   volumes:
+  #     - ./backend:/app
+  #     - /app/node_modules
+  #   depends_on:
+  #     - postgres
+  #     - redis
+  #     - minio
+  #   networks:
+  #     - myerp_network
+
+  # Frontend - Will be added after creating the application
+  # frontend:
+  #   build:
+  #     context: ./frontend
+  #     dockerfile: Dockerfile
+  #   container_name: myerp_frontend
+  #   environment:
+  #     REACT_APP_API_URL: http://localhost:4000/api
+  #   ports:
+  #     - "3000:3000"
+  #   volumes:
+  #     - ./frontend:/app
+  #     - /app/node_modules
+  #   depends_on:
+  #     - backend
+  #   networks:
+  #     - myerp_network
+
+networks:
+  myerp_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
