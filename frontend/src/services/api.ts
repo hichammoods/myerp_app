@@ -326,6 +326,68 @@ export const quotationsApi = {
     });
     return response.data;
   },
+
+  duplicate: async (id: string) => {
+    const response = await api.post(`/quotations/${id}/duplicate`);
+    return response.data;
+  },
+
+  getStats: async () => {
+    const response = await api.get('/quotations/stats/overview');
+    return response.data;
+  },
+};
+
+// Settings API
+export const settingsApi = {
+  getCompany: async () => {
+    const response = await api.get('/settings/company');
+    return response.data;
+  },
+
+  updateCompany: async (data: any) => {
+    const response = await api.put('/settings/company', data);
+    return response.data;
+  },
+};
+
+// Inventory API
+export const inventoryApi = {
+  getStock: async (params?: {
+    search?: string;
+    category?: string;
+    status?: string;
+  }) => {
+    const response = await api.get('/inventory/stock', { params });
+    return response.data;
+  },
+
+  getMovements: async (limit?: number) => {
+    const response = await api.get('/inventory/movements', { params: { limit } });
+    return response.data;
+  },
+
+  createMovement: async (data: {
+    item_id: string;
+    item_type: 'product' | 'material';
+    adjustment_type: 'add' | 'remove' | 'set';
+    quantity: number;
+    reason: string;
+    notes?: string;
+  }) => {
+    const response = await api.post('/inventory/movements', data);
+    return response.data;
+  },
+
+  getAlerts: async () => {
+    const response = await api.get('/inventory/alerts');
+    return response.data;
+  },
+
+  getStats: async () => {
+    const response = await api.get('/inventory/stats');
+    return response.data;
+  },
 };
 
 export default api;

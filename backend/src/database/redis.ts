@@ -225,6 +225,18 @@ export const redis = {
     const client = RedisConnection.getClient();
     return client ? client.ttl(key) : Promise.resolve(-2);
   },
+  setex: (key: string, seconds: number, value: string) => {
+    const client = RedisConnection.getClient();
+    return client ? client.setex(key, seconds, value) : Promise.resolve(null);
+  },
+  incr: (key: string) => {
+    const client = RedisConnection.getClient();
+    return client ? client.incr(key) : Promise.resolve(0);
+  },
+  keys: (pattern: string) => {
+    const client = RedisConnection.getClient();
+    return client ? client.keys(pattern) : Promise.resolve([]);
+  },
 
   // Session helpers
   setSession: (sessionId: string, data: any, ttl?: number) =>
@@ -238,3 +250,6 @@ export const redis = {
   getCache: (key: string) => RedisConnection.getCache(key),
   invalidateCache: (pattern: string) => RedisConnection.invalidateCache(pattern),
 };
+
+// Export as redisClient for backwards compatibility
+export const redisClient = redis;

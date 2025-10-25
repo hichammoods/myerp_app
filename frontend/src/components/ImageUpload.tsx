@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -22,6 +23,7 @@ interface ImageFile {
   id: string
   file?: File
   url?: string
+  filename?: string
   name: string
   size: number
   type: string
@@ -56,8 +58,10 @@ export function ImageUpload({
   productId,
   onUploadSuccess
 }: ImageUploadProps) {
+  const queryClient = useQueryClient()
   const [dragging, setDragging] = useState(false)
   const [previewImage, setPreviewImage] = useState<ImageFile | null>(null)
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<{ [key: string]: number }>({})
   const fileInputRef = useRef<HTMLInputElement>(null)
   const imagesRef = useRef<ImageFile[]>(images)
@@ -66,6 +70,13 @@ export function ImageUpload({
   React.useEffect(() => {
     imagesRef.current = images
   }, [images])
+
+  // Sync dialog open state with previewImage
+  React.useEffect(() => {
+    if (!isDialogOpen && previewImage) {
+      setPreviewImage(null)
+    }
+  }, [isDialogOpen, previewImage])
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -259,8 +270,45 @@ export function ImageUpload({
     }, 200)
   }
 
-  const handleRemoveImage = (imageId: string) => {
-    const updatedImages = images.filter(img => img.id !== imageId)
+  const handleRemoveImage = async (imageId: string) => {
+    // Find by ID first, fallback to filename if ID is undefined
+    const imageToRemove = images.find(img =>
+      img.id === imageId || img.filename === imageId
+    )
+
+    if (!imageToRemove) {
+      toast.error('Image introuvable')
+      return
+    }
+
+    // If image has been uploaded to server (has filename and productId), delete from server
+    if (imageToRemove.filename && productId) {
+      try {
+        const token = localStorage.getItem('access_token')
+        const response = await fetch(
+          `${import.meta.env.VITE_API_URL || 'http://localhost:4000/api'}/products/${productId}/images/${imageToRemove.filename}`,
+          {
+            method: 'DELETE',
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+          }
+        )
+
+        if (!response.ok) {
+          throw new Error('Failed to delete image from server')
+        }
+
+        toast.success('Image archivée avec succès')
+      } catch (error) {
+        console.error('Error deleting image:', error)
+        toast.error('Erreur lors de la suppression de l\'image')
+        return // Don't update UI if server deletion failed
+      }
+    }
+
+    // Filter by filename (the only reliable unique identifier)
+    const updatedImages = images.filter(img =>
+      img.filename !== imageToRemove.filename
+    )
 
     // If we removed the main image, set the first remaining image as main
     if (updatedImages.length > 0 && !updatedImages.some(img => img.isMain)) {
@@ -268,7 +316,18 @@ export function ImageUpload({
     }
 
     onImagesChange(updatedImages)
-    toast.success('Image supprimée')
+
+    // Invalidate queries after a small delay to ensure local state updates first
+    if (imageToRemove.filename && productId) {
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['products'] })
+        queryClient.invalidateQueries({ queryKey: ['products', productId] })
+      }, 100)
+    }
+
+    if (!imageToRemove.filename) {
+      toast.success('Image supprimée')
+    }
   }
 
   const handleSetMainImage = (imageId: string) => {
@@ -398,6 +457,7 @@ export function ImageUpload({
                       onClick={(e) => {
                         e.stopPropagation()
                         setPreviewImage(image)
+                        setIsDialogOpen(true)
                       }}
                     >
                       <Eye className="h-4 w-4" />
@@ -407,7 +467,8 @@ export function ImageUpload({
                       variant="destructive"
                       onClick={(e) => {
                         e.stopPropagation()
-                        handleRemoveImage(image.id)
+                        // Use filename as identifier since id is undefined for server images
+                        handleRemoveImage(image.filename || image.id)
                       }}
                     >
                       <Trash2 className="h-4 w-4" />
@@ -433,7 +494,7 @@ export function ImageUpload({
       )}
 
       {/* Image Preview Dialog */}
-      <Dialog open={!!previewImage} onOpenChange={() => setPreviewImage(null)}>
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="max-w-4xl">
           <DialogHeader>
             <DialogTitle>{previewImage?.name}</DialogTitle>
@@ -468,8 +529,8 @@ export function ImageUpload({
                 size="sm"
                 onClick={() => {
                   if (previewImage) {
-                    handleRemoveImage(previewImage.id)
-                    setPreviewImage(null)
+                    // Use filename as the identifier since id is undefined for server images
+                    handleRemoveImage(previewImage.filename || previewImage.id)
                   }
                 }}
               >

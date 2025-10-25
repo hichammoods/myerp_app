@@ -1,4 +1,6 @@
 import React, { useState, useMemo } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { inventoryApi } from '@/services/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -126,6 +128,7 @@ interface StockAdjustment {
 }
 
 export function StockManagement() {
+  const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState('overview')
   const [searchTerm, setSearchTerm] = useState('')
   const [filterCategory, setFilterCategory] = useState('all')
@@ -141,152 +144,79 @@ export function StockManagement() {
     notes: '',
   })
 
-  // Mock data
-  const stockItems: StockItem[] = [
-    {
-      id: '1',
-      type: 'product',
-      name: 'Table Moderne 180cm',
-      code: 'TBL-180-MOD',
-      current_stock: 5,
-      min_stock: 10,
-      max_stock: 50,
-      optimal_stock: 25,
-      unit: 'pièce',
-      value_per_unit: 450,
-      total_value: 2250,
-      last_movement: new Date('2024-01-15'),
-      status: 'critical',
-      category: 'Tables',
-      location: 'Entrepôt A - Zone 1',
-    },
-    {
-      id: '2',
-      type: 'material',
-      name: 'Bois de Chêne',
-      code: 'MAT-BOIS-01',
-      current_stock: 150,
-      min_stock: 100,
-      max_stock: 500,
-      optimal_stock: 300,
-      unit: 'm²',
-      value_per_unit: 75,
-      total_value: 11250,
-      last_movement: new Date('2024-01-14'),
-      status: 'normal',
-      category: 'Bois',
-      supplier: 'Bois Premium SARL',
-      location: 'Entrepôt B - Zone 3',
-    },
-    {
-      id: '3',
-      type: 'product',
-      name: 'Chaise Ergonomique Pro',
-      code: 'CHS-ERG-PRO',
-      current_stock: 12,
-      min_stock: 20,
-      max_stock: 100,
-      optimal_stock: 50,
-      unit: 'pièce',
-      value_per_unit: 120,
-      total_value: 1440,
-      last_movement: new Date('2024-01-16'),
-      status: 'low',
-      category: 'Chaises',
-      location: 'Entrepôt A - Zone 2',
-    },
-    {
-      id: '4',
-      type: 'material',
-      name: 'Tissu Velours Bleu',
-      code: 'MAT-TIS-03',
-      current_stock: 450,
-      min_stock: 50,
-      max_stock: 300,
-      optimal_stock: 150,
-      unit: 'm',
-      value_per_unit: 25,
-      total_value: 11250,
-      last_movement: new Date('2024-01-10'),
-      status: 'overstocked',
-      category: 'Tissus',
-      supplier: 'Textiles Deluxe',
-      location: 'Entrepôt C - Zone 1',
-    },
-  ]
+  // Fetch stock items
+  const { data: stockData, isLoading: isLoadingStock } = useQuery({
+    queryKey: ['stock', searchTerm, filterCategory, filterStatus],
+    queryFn: () => inventoryApi.getStock({
+      search: searchTerm || undefined,
+      category: filterCategory !== 'all' ? filterCategory : undefined,
+      status: filterStatus !== 'all' ? filterStatus : undefined,
+    }),
+  })
 
-  const stockMovements: StockMovement[] = [
-    {
-      id: '1',
-      item_id: '1',
-      item_name: 'Table Moderne 180cm',
-      type: 'out',
-      quantity: 3,
-      before_stock: 8,
-      after_stock: 5,
-      reason: 'Vente',
-      reference: 'CMD-2024-001',
-      user: 'Jean Dupont',
-      date: new Date('2024-01-15'),
-      notes: 'Livraison client Paris',
-    },
-    {
-      id: '2',
-      item_id: '2',
-      item_name: 'Bois de Chêne',
-      type: 'in',
-      quantity: 100,
-      before_stock: 50,
-      after_stock: 150,
-      reason: 'Réapprovisionnement',
-      reference: 'PO-2024-015',
-      user: 'Marie Martin',
-      date: new Date('2024-01-14'),
-    },
-    {
-      id: '3',
-      item_id: '3',
-      item_name: 'Chaise Ergonomique Pro',
-      type: 'adjustment',
-      quantity: -2,
-      before_stock: 14,
-      after_stock: 12,
-      reason: 'Inventaire',
-      user: 'Paul Durand',
-      date: new Date('2024-01-16'),
-      notes: 'Écart constaté lors de l\'inventaire',
-    },
-  ]
+  // Fetch movements
+  const { data: movementsData, isLoading: isLoadingMovements } = useQuery({
+    queryKey: ['movements'],
+    queryFn: () => inventoryApi.getMovements(50),
+  })
 
-  const stockAlerts: StockAlert[] = [
-    {
-      id: '1',
-      item_id: '1',
-      item_name: 'Table Moderne 180cm',
-      type: 'critical',
-      message: 'Stock critique: 5 pièces restantes (min: 10)',
-      created_at: new Date('2024-01-15'),
-      resolved: false,
+  // Fetch alerts
+  const { data: alertsData, isLoading: isLoadingAlerts } = useQuery({
+    queryKey: ['alerts'],
+    queryFn: () => inventoryApi.getAlerts(),
+  })
+
+  // Fetch stats
+  const { data: statsData, isLoading: isLoadingStats } = useQuery({
+    queryKey: ['inventory-stats'],
+    queryFn: () => inventoryApi.getStats(),
+  })
+
+  // Stock adjustment mutation
+  const adjustmentMutation = useMutation({
+    mutationFn: inventoryApi.createMovement,
+    onSuccess: () => {
+      toast.success('Stock ajusté avec succès')
+      queryClient.invalidateQueries({ queryKey: ['stock'] })
+      queryClient.invalidateQueries({ queryKey: ['movements'] })
+      queryClient.invalidateQueries({ queryKey: ['alerts'] })
+      queryClient.invalidateQueries({ queryKey: ['inventory-stats'] })
+      setShowAdjustmentDialog(false)
+      setAdjustment({
+        item_id: '',
+        adjustment_type: 'add',
+        quantity: 0,
+        reason: '',
+        notes: '',
+      })
     },
-    {
-      id: '2',
-      item_id: '3',
-      item_name: 'Chaise Ergonomique Pro',
-      type: 'low',
-      message: 'Stock faible: 12 pièces restantes (min: 20)',
-      created_at: new Date('2024-01-16'),
-      resolved: false,
+    onError: (error: any) => {
+      toast.error(error.response?.data?.error || 'Erreur lors de l\'ajustement du stock')
     },
-    {
-      id: '3',
-      item_id: '4',
-      item_name: 'Tissu Velours Bleu',
-      type: 'overstock',
-      message: 'Surstock: 450m en stock (max recommandé: 300m)',
-      created_at: new Date('2024-01-10'),
-      resolved: false,
-    },
-  ]
+  })
+
+  // Extract data from responses with fallbacks
+  const stockItems: StockItem[] = stockData?.items || []
+  const stockMovements: StockMovement[] = movementsData?.movements?.map((m: any) => ({
+    ...m,
+    date: new Date(m.date),
+  })) || []
+  const stockAlerts: StockAlert[] = alertsData?.alerts?.map((a: any) => ({
+    ...a,
+    created_at: new Date(a.created_at),
+    resolved_at: a.resolved_at ? new Date(a.resolved_at) : undefined,
+  })) || []
+  const stats = statsData?.stats || {
+    total_items: 0,
+    total_products: 0,
+    total_materials: 0,
+    critical_alerts: 0,
+    total_value: 0,
+    products_value: 0,
+    materials_value: 0,
+    today_movements: 0,
+  }
+
 
   // Chart data
   const stockValueData = [
@@ -305,17 +235,8 @@ export function StockManagement() {
     { name: 'Surstock', value: 15, color: '#6366f1' },
   ]
 
-  // Filtered items
-  const filteredItems = useMemo(() => {
-    return stockItems.filter(item => {
-      const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          item.code.toLowerCase().includes(searchTerm.toLowerCase())
-      const matchesCategory = filterCategory === 'all' || item.category === filterCategory
-      const matchesStatus = filterStatus === 'all' || item.status === filterStatus
-
-      return matchesSearch && matchesCategory && matchesStatus
-    })
-  }, [searchTerm, filterCategory, filterStatus])
+  // Filtered items - now handled by the API query with filters
+  const filteredItems = stockItems
 
   // Unresolved alerts count
   const unresolvedAlertsCount = stockAlerts.filter(a => !a.resolved).length
@@ -356,28 +277,14 @@ export function StockManagement() {
       return
     }
 
-    // Simulate stock adjustment
-    let newStock = selectedItem.current_stock
-    switch (adjustment.adjustment_type) {
-      case 'add':
-        newStock += adjustment.quantity
-        break
-      case 'remove':
-        newStock -= adjustment.quantity
-        break
-      case 'set':
-        newStock = adjustment.quantity
-        break
-    }
-
-    toast.success(`Stock ajusté: ${selectedItem.name} - Nouveau stock: ${newStock} ${selectedItem.unit}`)
-    setShowAdjustmentDialog(false)
-    setAdjustment({
-      item_id: '',
-      adjustment_type: 'add',
-      quantity: 0,
-      reason: '',
-      notes: '',
+    // Call the API mutation
+    adjustmentMutation.mutate({
+      item_id: selectedItem.id,
+      item_type: selectedItem.type,
+      adjustment_type: adjustment.adjustment_type,
+      quantity: adjustment.quantity,
+      reason: adjustment.reason,
+      notes: adjustment.notes,
     })
   }
 
@@ -455,9 +362,11 @@ export function StockManagement() {
             <BarChart className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">€26,190</div>
+            <div className="text-2xl font-bold">
+              {isLoadingStats ? '...' : `€${stats.total_value.toLocaleString('fr-FR', { maximumFractionDigits: 0 })}`}
+            </div>
             <p className="text-xs text-muted-foreground">
-              <span className="text-green-500">+8.2%</span> depuis le mois dernier
+              Produits: €{stats.products_value.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} | Matériaux: €{stats.materials_value.toLocaleString('fr-FR', { maximumFractionDigits: 0 })}
             </p>
           </CardContent>
         </Card>
@@ -467,9 +376,11 @@ export function StockManagement() {
             <Package className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">147</div>
+            <div className="text-2xl font-bold">
+              {isLoadingStats ? '...' : stats.total_items}
+            </div>
             <p className="text-xs text-muted-foreground">
-              82 produits, 65 matériaux
+              {stats.total_products} produits, {stats.total_materials} matériaux
             </p>
           </CardContent>
         </Card>
@@ -480,7 +391,7 @@ export function StockManagement() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-orange-600">
-              {unresolvedAlertsCount}
+              {isLoadingAlerts ? '...' : unresolvedAlertsCount}
             </div>
             <p className="text-xs text-muted-foreground">
               {stockAlerts.filter(a => a.type === 'critical').length} critiques
@@ -493,9 +404,11 @@ export function StockManagement() {
             <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">24</div>
+            <div className="text-2xl font-bold">
+              {isLoadingStats ? '...' : stats.today_movements}
+            </div>
             <p className="text-xs text-muted-foreground">
-              15 entrées, 9 sorties
+              Mouvements aujourd'hui
             </p>
           </CardContent>
         </Card>

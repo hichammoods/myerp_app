@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -7,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { EnhancedQuotationBuilder } from './EnhancedQuotationBuilder'
 import { toast } from 'react-hot-toast'
 import { generateQuotationPDF } from '@/services/pdfGenerator'
+import { quotationsApi, settingsApi } from '@/services/api'
 import {
   Plus,
   FileText,
@@ -47,215 +49,259 @@ import {
 } from "@/components/ui/select"
 
 export function QuotationManagement() {
+  const queryClient = useQueryClient()
   const [showBuilder, setShowBuilder] = useState(false)
   const [editingQuotation, setEditingQuotation] = useState<any>(null)
-  const [searchTerm, setSearchTerm] = useState('')
+  const [searchInput, setSearchInput] = useState('')  // User input (not debounced)
+  const [searchTerm, setSearchTerm] = useState('')    // Debounced search term
   const [filterStatus, setFilterStatus] = useState('all')
   const [filterPeriod, setFilterPeriod] = useState('all')
   const [sortBy, setSortBy] = useState('date_desc')
 
-  // Mock data for demonstration
-  const [quotations, setQuotations] = useState([
-    {
-      id: 1,
-      quotation_number: 'DEV-202401-001',
-      date: '2024-01-15',
-      validity_date: '2024-02-15',
-      contact_name: 'Meubles Modernes SARL',
-      contact_email: 'jean.dupont@meublesmodernes.fr',
-      status: 'sent',
-      items_count: 5,
-      total_ht: 8500,
-      total_ttc: 10200,
-      created_by: 'Admin',
-      version: 1
-    },
-    {
-      id: 2,
-      quotation_number: 'DEV-202401-002',
-      date: '2024-01-18',
-      validity_date: '2024-02-18',
-      contact_name: 'Hôtel Luxe Palace',
-      contact_email: 'sleroy@luxepalace.com',
-      status: 'accepted',
-      items_count: 12,
-      total_ht: 25000,
-      total_ttc: 30000,
-      created_by: 'Admin',
-      version: 3
-    },
-    {
-      id: 3,
-      quotation_number: 'DEV-202401-003',
-      date: '2024-01-20',
-      validity_date: '2024-02-20',
-      contact_name: 'Design Intérieur Pro',
-      contact_email: 'marie@designinterieur.fr',
-      status: 'draft',
-      items_count: 3,
-      total_ht: 4200,
-      total_ttc: 5040,
-      created_by: 'Admin',
-      version: 1
-    },
-    {
-      id: 4,
-      quotation_number: 'DEV-202312-045',
-      date: '2023-12-10',
-      validity_date: '2024-01-10',
-      contact_name: 'Restaurant Le Gourmet',
-      contact_email: 'contact@legourmet.fr',
-      status: 'expired',
-      items_count: 8,
-      total_ht: 12000,
-      total_ttc: 14400,
-      created_by: 'Admin',
-      version: 2
-    },
-    {
-      id: 5,
-      quotation_number: 'DEV-202401-004',
-      date: '2024-01-22',
-      validity_date: '2024-02-22',
-      contact_name: 'Boutique Chic',
-      contact_email: 'info@boutiquechic.fr',
-      status: 'rejected',
-      items_count: 4,
-      total_ht: 6500,
-      total_ttc: 7800,
-      created_by: 'Admin',
-      version: 1
-    }
-  ])
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchTerm(searchInput)
+    }, 300) // 300ms debounce
 
-  // Calculate statistics
+    return () => clearTimeout(timer)
+  }, [searchInput])
+
+  // Fetch quotations from API
+  const { data: quotationsData, isLoading, error } = useQuery({
+    queryKey: ['quotations', { search: searchTerm, status: filterStatus === 'all' ? undefined : filterStatus }],
+    queryFn: () => quotationsApi.getAll({
+      search: searchTerm || undefined,
+      status: filterStatus === 'all' ? undefined : filterStatus
+    })
+  })
+
+  const quotations = quotationsData?.quotations || []
+
+  // Fetch statistics from API
+  const { data: statsData } = useQuery({
+    queryKey: ['quotation-stats'],
+    queryFn: () => quotationsApi.getStats()
+  })
+
+  // Use statistics from API or calculate from local data as fallback
   const stats = useMemo(() => {
+    if (statsData) {
+      return {
+        totalQuotations: parseInt(statsData.total_quotations) || 0,
+        acceptedQuotations: parseInt(statsData.accepted_count) || 0,
+        draftCount: parseInt(statsData.draft_count) || 0,
+        sentCount: parseInt(statsData.sent_count) || 0,
+        rejectedCount: parseInt(statsData.rejected_count) || 0,
+        expiredCount: parseInt(statsData.expired_count) || 0,
+        potentialRevenue: parseFloat(statsData.potential_revenue) || 0,
+        acceptedRevenue: parseFloat(statsData.accepted_revenue) || 0,
+        averageValue: parseFloat(statsData.average_quotation_value) || 0,
+        conversionRate: parseFloat(statsData.conversion_rate) || 0
+      }
+    }
+    // Fallback to local calculation if API stats not available
     const totalQuotations = quotations.length
     const acceptedQuotations = quotations.filter(q => q.status === 'accepted').length
-    const totalValue = quotations.reduce((sum, q) => sum + q.total_ttc, 0)
-    const acceptedValue = quotations
+    const draftCount = quotations.filter(q => q.status === 'draft').length
+    const sentCount = quotations.filter(q => q.status === 'sent').length
+    const rejectedCount = quotations.filter(q => q.status === 'rejected').length
+    const expiredCount = quotations.filter(q => q.status === 'expired').length
+    const potentialRevenue = quotations.reduce((sum, q) => sum + (q.total_amount || q.total_ttc || 0), 0)
+    const acceptedRevenue = quotations
       .filter(q => q.status === 'accepted')
-      .reduce((sum, q) => sum + q.total_ttc, 0)
+      .reduce((sum, q) => sum + (q.total_amount || q.total_ttc || 0), 0)
+    const averageValue = totalQuotations > 0 ? potentialRevenue / totalQuotations : 0
     const conversionRate = totalQuotations > 0 ? (acceptedQuotations / totalQuotations) * 100 : 0
 
     return {
       totalQuotations,
       acceptedQuotations,
-      totalValue,
-      acceptedValue,
+      draftCount,
+      sentCount,
+      rejectedCount,
+      expiredCount,
+      potentialRevenue,
+      acceptedRevenue,
+      averageValue,
       conversionRate
     }
-  }, [quotations])
+  }, [quotations, statsData])
 
-  // Filter and sort quotations
+  // Create quotation mutation
+  const createQuotationMutation = useMutation({
+    mutationFn: quotationsApi.create,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['quotations'] })
+      queryClient.invalidateQueries({ queryKey: ['quotation-stats'] })
+      toast.success('Devis créé avec succès')
+      setShowBuilder(false)
+      setEditingQuotation(null)
+    },
+    onError: () => {
+      toast.error('Erreur lors de la création du devis')
+    }
+  })
+
+  // Update quotation mutation
+  const updateQuotationMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => quotationsApi.update(id, data),
+    onSuccess: (response, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['quotations'] })
+      queryClient.invalidateQueries({ queryKey: ['quotation-stats'] })
+      // Also invalidate the specific quotation query to ensure fresh data on next edit
+      queryClient.invalidateQueries({ queryKey: ['quotation', variables.id] })
+      toast.success('Devis mis à jour avec succès')
+      setShowBuilder(false)
+      setEditingQuotation(null)
+    },
+    onError: () => {
+      toast.error('Erreur lors de la mise à jour du devis')
+    }
+  })
+
+  // Delete quotation mutation
+  const deleteQuotationMutation = useMutation({
+    mutationFn: quotationsApi.delete,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['quotations'] })
+      queryClient.invalidateQueries({ queryKey: ['quotation-stats'] })
+      toast.success('Devis supprimé avec succès')
+    },
+    onError: () => {
+      toast.error('Erreur lors de la suppression du devis')
+    }
+  })
+
+  // Duplicate quotation mutation
+  const duplicateQuotationMutation = useMutation({
+    mutationFn: quotationsApi.duplicate,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['quotations'] })
+      queryClient.invalidateQueries({ queryKey: ['quotation-stats'] })
+      toast.success('Devis dupliqué avec succès')
+    },
+    onError: () => {
+      toast.error('Erreur lors de la duplication du devis')
+    }
+  })
+
+  // Update status mutation
+  const updateStatusMutation = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) => quotationsApi.updateStatus(id, status),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['quotations'] })
+      queryClient.invalidateQueries({ queryKey: ['quotation-stats'] })
+    },
+    onError: () => {
+      toast.error('Erreur lors de la mise à jour du statut')
+    }
+  })
+
+  // Apply client-side filters only for things not handled by backend
   const filteredQuotations = useMemo(() => {
-    let filtered = quotations.filter(quotation => {
-      // Search filter
-      const searchLower = searchTerm.toLowerCase()
-      const matchesSearch = !searchTerm ||
-        quotation.quotation_number.toLowerCase().includes(searchLower) ||
-        quotation.contact_name.toLowerCase().includes(searchLower) ||
-        quotation.contact_email.toLowerCase().includes(searchLower)
+    let filtered = [...quotations]
 
-      // Status filter
-      const matchesStatus = filterStatus === 'all' || quotation.status === filterStatus
+    // Period filter (not handled by backend, so we do it client-side)
+    if (filterPeriod !== 'all') {
+      filtered = filtered.filter(quotation => {
+        // Use created_at field from backend
+        const dateStr = quotation.created_at
+        if (!dateStr) return false
 
-      // Period filter
-      let matchesPeriod = true
-      if (filterPeriod !== 'all') {
-        const quotationDate = new Date(quotation.date)
+        const quotationDate = new Date(dateStr)
         const now = new Date()
-        const daysDiff = Math.floor((now.getTime() - quotationDate.getTime()) / (1000 * 60 * 60 * 24))
+        now.setHours(0, 0, 0, 0) // Reset to start of day for accurate comparison
+
+        const quotationDay = new Date(quotationDate)
+        quotationDay.setHours(0, 0, 0, 0)
+
+        const daysDiff = Math.floor((now.getTime() - quotationDay.getTime()) / (1000 * 60 * 60 * 24))
 
         switch (filterPeriod) {
           case 'today':
-            matchesPeriod = daysDiff === 0
-            break
+            return daysDiff === 0
           case 'week':
-            matchesPeriod = daysDiff <= 7
-            break
+            return daysDiff >= 0 && daysDiff <= 7
           case 'month':
-            matchesPeriod = daysDiff <= 30
-            break
+            return daysDiff >= 0 && daysDiff <= 30
           case 'quarter':
-            matchesPeriod = daysDiff <= 90
-            break
+            return daysDiff >= 0 && daysDiff <= 90
+          default:
+            return true
         }
-      }
+      })
+    }
 
-      return matchesSearch && matchesStatus && matchesPeriod
-    })
-
-    // Sort
+    // Sort (backend returns sorted by date desc, but we allow client-side re-sorting)
     switch (sortBy) {
       case 'date_desc':
-        filtered.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+        filtered.sort((a, b) => {
+          const dateA = new Date(a.created_at).getTime()
+          const dateB = new Date(b.created_at).getTime()
+          return dateB - dateA
+        })
         break
       case 'date_asc':
-        filtered.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+        filtered.sort((a, b) => {
+          const dateA = new Date(a.created_at).getTime()
+          const dateB = new Date(b.created_at).getTime()
+          return dateA - dateB
+        })
         break
       case 'amount_desc':
-        filtered.sort((a, b) => b.total_ttc - a.total_ttc)
+        filtered.sort((a, b) => {
+          const amountA = parseFloat(a.total_amount) || 0
+          const amountB = parseFloat(b.total_amount) || 0
+          return amountB - amountA
+        })
         break
       case 'amount_asc':
-        filtered.sort((a, b) => a.total_ttc - b.total_ttc)
+        filtered.sort((a, b) => {
+          const amountA = parseFloat(a.total_amount) || 0
+          const amountB = parseFloat(b.total_amount) || 0
+          return amountA - amountB
+        })
         break
       case 'client':
-        filtered.sort((a, b) => a.contact_name.localeCompare(b.contact_name))
+        filtered.sort((a, b) => (a.contact_name || '').localeCompare(b.contact_name || ''))
         break
     }
 
     return filtered
-  }, [quotations, searchTerm, filterStatus, filterPeriod, sortBy])
+  }, [quotations, filterPeriod, sortBy])
 
   const handleSaveQuotation = (data: any) => {
     if (editingQuotation) {
       // Update existing quotation
-      setQuotations(prev => prev.map(q =>
-        q.id === editingQuotation.id
-          ? { ...q, ...data, total_ttc: data.totals.total }
-          : q
-      ))
+      updateQuotationMutation.mutate({ id: editingQuotation.id, data })
     } else {
-      // Add new quotation
-      const newQuotation = {
-        id: quotations.length + 1,
-        ...data,
-        total_ht: data.totals.subtotal,
-        total_ttc: data.totals.total,
-        items_count: data.sections.reduce((sum: number, s: any) => sum + s.items.length, 0),
-        created_by: 'Admin',
-        version: 1
-      }
-      setQuotations(prev => [...prev, newQuotation])
+      // Create new quotation
+      createQuotationMutation.mutate(data)
     }
-    setShowBuilder(false)
-    setEditingQuotation(null)
   }
 
-  const handleEditQuotation = (quotation: any) => {
-    setEditingQuotation(quotation)
-    setShowBuilder(true)
+  const handleEditQuotation = async (quotation: any) => {
+    try {
+      // Fetch full quotation details including line_items
+      const fullQuotation = await quotationsApi.getById(quotation.id)
+      setEditingQuotation(fullQuotation.quotation || fullQuotation)
+      setShowBuilder(true)
+    } catch (error) {
+      toast.error('Erreur lors du chargement du devis')
+      console.error('Error loading quotation:', error)
+    }
   }
 
   const handleDuplicateQuotation = (quotation: any) => {
-    const duplicated = {
-      ...quotation,
-      id: quotations.length + 1,
-      quotation_number: generateNewNumber(),
-      date: new Date().toISOString().split('T')[0],
-      validity_date: getNewValidityDate(),
-      status: 'draft',
-      version: 1
+    if (confirm('Voulez-vous dupliquer ce devis ?')) {
+      duplicateQuotationMutation.mutate(quotation.id)
     }
-    setQuotations(prev => [...prev, duplicated])
-    toast.success('Devis dupliqué avec succès')
   }
 
-  const handleDeleteQuotation = (id: number) => {
+  const handleDeleteQuotation = (id: string) => {
     if (confirm('Êtes-vous sûr de vouloir supprimer ce devis ?')) {
-      setQuotations(prev => prev.filter(q => q.id !== id))
-      toast.success('Devis supprimé avec succès')
+      deleteQuotationMutation.mutate(id)
     }
   }
 
@@ -265,127 +311,121 @@ export function QuotationManagement() {
   }
 
   const handleSendQuotation = (quotation: any) => {
-    setQuotations(prev => prev.map(q =>
-      q.id === quotation.id ? { ...q, status: 'sent' } : q
-    ))
+    updateStatusMutation.mutate({ id: quotation.id, status: 'sent' })
     toast.success('Devis envoyé par email')
   }
 
-  const handleDownloadPDF = (quotation: any) => {
-    // Company information
-    const company = {
-      name: 'MyERP Furniture',
-      address: '123 Rue de la République',
-      city: 'Paris',
-      postalCode: '75001',
-      country: 'France',
-      phone: '+33 1 23 45 67 89',
-      email: 'contact@myerp-furniture.fr',
-      website: 'www.myerp-furniture.fr',
-      siret: '123 456 789 00012',
-      tva: 'FR 12 345678900'
-    }
+  const handleDownloadPDF = async (quotation: any) => {
+    try {
+      // Fetch full quotation data with line items from API
+      const fullQuotation = await quotationsApi.getById(quotation.id)
+      const quotationData = fullQuotation.quotation || fullQuotation
 
-    // Client information
-    const client = {
-      name: quotation.contact_name,
-      company: quotation.contact_company || '',
-      address: '456 Avenue des Champs',
-      city: 'Lyon',
-      postalCode: '69000',
-      country: 'France',
-      phone: quotation.contact_phone || '',
-      email: quotation.contact_email
-    }
-
-    // Sample items for the quotation
-    const items = [
-      {
-        id: '1',
-        description: 'Table en chêne massif 200x100cm avec finition vernis mat',
-        quantity: 1,
-        unitPrice: 2500,
-        discount: 10,
-        discountType: 'percent' as const,
-        tax: 20,
-        total: 2250
-      },
-      {
-        id: '2',
-        description: 'Chaise ergonomique avec assise en cuir',
-        quantity: 6,
-        unitPrice: 350,
-        discount: 0,
-        discountType: 'percent' as const,
-        tax: 20,
-        total: 2100
-      },
-      {
-        id: '3',
-        description: 'Buffet 3 portes en noyer avec étagères intégrées',
-        quantity: 1,
-        unitPrice: 1800,
-        discount: 50,
-        discountType: 'amount' as const,
-        tax: 20,
-        total: 1750
+      // Fetch company information from API
+      let company = {
+        name: 'MyERP Furniture',
+        address: '123 Rue de la République',
+        city: 'Paris',
+        postalCode: '75001',
+        country: 'France',
+        phone: '+33 1 23 45 67 89',
+        email: 'contact@myerp-furniture.fr',
+        website: 'www.myerp-furniture.fr',
+        siret: '123 456 789 00012',
+        tva: 'FR 12 345678900'
       }
-    ]
 
-    // Calculate totals
-    const subtotal = items.reduce((sum, item) => sum + item.total, 0)
-    const totalDiscount = items.reduce((sum, item) => {
-      if (item.discountType === 'percent') {
-        return sum + (item.unitPrice * item.quantity * item.discount / 100)
-      } else {
-        return sum + item.discount
+      try {
+        const companyData = await settingsApi.getCompany()
+        if (companyData?.company) {
+          company = {
+            name: companyData.company.name || company.name,
+            address: companyData.company.address || company.address,
+            city: companyData.company.city || company.city,
+            postalCode: companyData.company.postal_code || company.postalCode,
+            country: companyData.company.country || company.country,
+            phone: companyData.company.phone || company.phone,
+            email: companyData.company.email || company.email,
+            website: companyData.company.website || company.website,
+            siret: companyData.company.siret || company.siret,
+            tva: companyData.company.tva || company.tva
+          }
+        }
+      } catch (companyError) {
+        console.warn('Could not fetch company settings, using defaults:', companyError)
       }
-    }, 0)
-    const totalTax = items.reduce((sum, item) => sum + (item.total * item.tax / 100), 0)
-    const total = subtotal + totalTax
 
-    // Format quotation data for PDF
-    const quotationData = {
-      id: quotation.id.toString(),
-      number: quotation.quotation_number,
-      date: new Date(quotation.date),
-      validUntil: new Date(quotation.validity_date),
-      client: client,
-      items: items,
-      subtotal: subtotal,
-      totalDiscount: totalDiscount,
-      totalTax: totalTax,
-      total: total,
-      notes: 'Livraison incluse dans la région parisienne. Installation sur devis.',
-      termsAndConditions: `1. Validité: Ce devis est valable 30 jours à compter de sa date d'émission.
-2. Paiement: 30% à la commande, 70% à la livraison.
-3. Délai de livraison: 4-6 semaines après confirmation de commande.
+      // Parse client address from quotation data
+      const addressParts = quotationData.delivery_address?.split(',') || []
+      const client = {
+        name: quotationData.contact_name || 'Client',
+        company: quotationData.company_name || '',
+        address: addressParts[0]?.trim() || '',
+        city: addressParts[1]?.trim() || '',
+        postalCode: addressParts[2]?.trim() || '',
+        country: 'France',
+        phone: quotationData.contact_phone || '',
+        email: quotationData.contact_email || ''
+      }
+
+      // Map line items from quotation data
+      const items = (quotationData.line_items || []).map((item: any) => {
+        // Calculate item total considering discount
+        const subtotal = item.quantity * item.unit_price
+        const discountAmount = item.discount_percent
+          ? (subtotal * item.discount_percent) / 100
+          : (item.discount_amount || 0)
+        const afterDiscount = subtotal - discountAmount
+        const taxAmount = (afterDiscount * item.tax_rate) / 100
+        const total = afterDiscount + taxAmount
+
+        return {
+          id: item.id,
+          description: `${item.product_name}${item.description ? '\n' + item.description : ''}`,
+          quantity: item.quantity,
+          unitPrice: item.unit_price,
+          discount: item.discount_percent || 0,
+          discountType: 'percent' as const,
+          tax: item.tax_rate || 20,
+          total: item.line_total || total
+        }
+      })
+
+      // If no items, show error
+      if (items.length === 0) {
+        toast.error('Aucun article dans ce devis')
+        return
+      }
+
+      // Calculate totals from the quotation data
+      const quotationPdfData = {
+        id: quotationData.id,
+        number: quotationData.quotation_number,
+        date: new Date(quotationData.created_at || quotationData.date),
+        validUntil: new Date(quotationData.expiration_date || quotationData.validity_date),
+        client,
+        items,
+        subtotal: parseFloat(quotationData.subtotal) || 0,
+        totalDiscount: parseFloat(quotationData.discount_amount) || 0,
+        totalTax: parseFloat(quotationData.tax_amount) || 0,
+        total: parseFloat(quotationData.total_amount) || 0,
+        notes: quotationData.notes || '',
+        termsAndConditions: quotationData.terms_conditions || `Conditions générales de vente:
+1. Devis valable ${quotationData.validity_days || 30} jours à compter de la date d'émission.
+2. Paiement: ${quotationData.payment_terms || '30'} jours fin de mois.
+3. Délai de livraison: ${quotationData.delivery_terms || '2-4 semaines'}.
 4. Garantie: Tous nos meubles sont garantis 2 ans pièces et main d'œuvre.
 5. Retours: Les produits sur mesure ne sont ni repris ni échangés.`,
-      status: quotation.status as any
-    }
+        status: quotationData.status as any
+      }
 
-    try {
-      generateQuotationPDF(company, quotationData, true)
+      // Generate PDF
+      generateQuotationPDF(company, quotationPdfData, true)
       toast.success('PDF téléchargé avec succès')
-    } catch (error) {
-      toast.error('Erreur lors de la génération du PDF')
-      console.error(error)
+    } catch (error: any) {
+      toast.error(error.message || 'Erreur lors de la génération du PDF')
+      console.error('PDF generation error:', error)
     }
-  }
-
-  const generateNewNumber = () => {
-    const date = new Date()
-    const year = date.getFullYear()
-    const month = String(date.getMonth() + 1).padStart(2, '0')
-    const count = quotations.filter(q => q.quotation_number.startsWith(`DEV-${year}${month}`)).length + 1
-    return `DEV-${year}${month}-${String(count).padStart(3, '0')}`
-  }
-
-  const getNewValidityDate = () => {
-    const date = new Date()
-    date.setDate(date.getDate() + 30)
-    return date.toISOString().split('T')[0]
   }
 
   const getStatusIcon = (status: string) => {
@@ -477,6 +517,9 @@ export function QuotationManagement() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.totalQuotations}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {stats.draftCount} brouillon(s)
+            </p>
           </CardContent>
         </Card>
         <Card>
@@ -486,6 +529,9 @@ export function QuotationManagement() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.acceptedQuotations}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {stats.rejectedCount} refusé(s)
+            </p>
           </CardContent>
         </Card>
         <Card>
@@ -495,24 +541,33 @@ export function QuotationManagement() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.conversionRate.toFixed(1)}%</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              30 derniers jours
+            </p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Valeur totale</CardTitle>
-            <Euro className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Revenu potentiel</CardTitle>
+            <Euro className="h-4 w-4 text-orange-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(stats.totalValue)}</div>
+            <div className="text-2xl font-bold">{formatCurrency(stats.potentialRevenue)}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Valeur moy: {formatCurrency(stats.averageValue)}
+            </p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">CA potentiel</CardTitle>
+            <CardTitle className="text-sm font-medium">CA réalisé</CardTitle>
             <Euro className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(stats.acceptedValue)}</div>
+            <div className="text-2xl font-bold">{formatCurrency(stats.acceptedRevenue)}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Devis acceptés
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -526,8 +581,8 @@ export function QuotationManagement() {
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
                 <Input
                   placeholder="Rechercher par numéro, client..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
                   className="pl-10"
                 />
               </div>
@@ -581,13 +636,22 @@ export function QuotationManagement() {
           <CardTitle>Liste des devis ({filteredQuotations.length})</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
-            {filteredQuotations.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
-                Aucun devis trouvé
-              </div>
-            ) : (
-              filteredQuotations.map(quotation => (
+          {isLoading ? (
+            <div className="text-center py-8 text-gray-500">
+              Chargement des devis...
+            </div>
+          ) : error ? (
+            <div className="text-center py-8 text-red-500">
+              Erreur lors du chargement des devis
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {filteredQuotations.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  Aucun devis trouvé
+                </div>
+              ) : (
+                filteredQuotations.map(quotation => (
                 <div
                   key={quotation.id}
                   className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
@@ -609,22 +673,22 @@ export function QuotationManagement() {
                       <div className="flex items-center gap-4 text-sm text-gray-600 dark:text-gray-400">
                         <span className="flex items-center gap-1">
                           <User className="h-3 w-3" />
-                          {quotation.contact_name}
+                          {quotation.contact_name || 'N/A'}
                         </span>
                         <span className="flex items-center gap-1">
                           <Calendar className="h-3 w-3" />
-                          {formatDate(quotation.date)}
+                          {formatDate(quotation.created_at || quotation.date)}
                         </span>
                         <span className="flex items-center gap-1">
                           <Package className="h-3 w-3" />
-                          {quotation.items_count} article(s)
+                          {quotation.line_items_count || 0} article(s)
                         </span>
                       </div>
                       <div className="flex items-center gap-4 text-sm">
                         <span className="font-medium">
-                          Total: {formatCurrency(quotation.total_ttc)}
+                          Total: {formatCurrency(quotation.total_amount || quotation.total_ttc || 0)}
                         </span>
-                        {quotation.status === 'sent' && new Date(quotation.validity_date) < new Date() && (
+                        {quotation.status === 'sent' && quotation.expiration_date && new Date(quotation.expiration_date) < new Date() && (
                           <span className="text-orange-600 flex items-center gap-1">
                             <AlertCircle className="h-3 w-3" />
                             Expire bientôt
@@ -678,8 +742,9 @@ export function QuotationManagement() {
                   </DropdownMenu>
                 </div>
               ))
-            )}
-          </div>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 

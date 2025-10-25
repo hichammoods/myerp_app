@@ -610,12 +610,120 @@ This project is proprietary software. See LICENSE file for details.
 - v1.5: Accounting module integration
 ---
 
-## Current Development Status (2025-10-24)
+## Current Development Status (2025-10-25)
 
 ### Recent Changes & Implementation
 
-#### 1. Product Image Upload System (WIP - In Progress)
-**Status**: Partially working - Backend complete, Frontend issues remain
+#### 1. Sales Order & Invoice Workflow (WP1 - In Progress)
+**Status**: Phase 1 MVP Implementation Started
+**Reference**: See `improved_V2.md` for complete technical specification
+
+**Overview**:
+Implementing the quotation → sales order → invoice workflow with manual conversion and automatic stock management.
+
+**Workflow States**:
+```
+Quotation (accepté)
+    ↓ [User clicks "Convertir en commande"]
+Sales Order (en_cours) → en_préparation → expédié → livré → terminé
+    ↓ [User clicks "Créer facture"]
+Invoice (brouillon) → envoyée → payée → annulée
+```
+
+**Implementation Plan** (17 tasks, 22-31 hours):
+
+**Phase 1: Database Foundation** ⏳ IN PROGRESS
+- [ ] Task 1: Create sales_orders & sales_order_items tables migration (30 min)
+- [ ] Task 2: Create invoices & invoice_items tables migration (30 min)
+- [ ] Task 3: Update quotations table with sales_order_id reference (15 min)
+
+**Phase 2: Backend API Development** 🔜 PENDING
+- [ ] Task 4: Create backend API routes for sales orders (2-3 hours)
+  - POST `/api/sales-orders` - Create from quotation
+  - GET `/api/sales-orders` - List with filters
+  - GET `/api/sales-orders/:id` - Get details
+  - PATCH `/api/sales-orders/:id/status` - Update status
+  - POST `/api/sales-orders/:id/cancel` - Cancel order (restore stock)
+- [ ] Task 5: Create backend API routes for invoices (2 hours)
+  - POST `/api/invoices` - Create from sales order
+  - GET `/api/invoices` - List with filters
+  - GET `/api/invoices/:id` - Get details
+  - PATCH `/api/invoices/:id/status` - Update status
+  - PATCH `/api/invoices/:id/payment` - Record payment
+- [ ] Task 6: Implement stock deduction logic in sales order creation (1 hour)
+
+**Phase 3: PDF Generation** 🔜 PENDING
+- [ ] Task 7: Create sales order PDF generator (1-1.5 hours)
+- [ ] Task 8: Create invoice PDF generator (1-1.5 hours)
+
+**Phase 4: Frontend API Integration** 🔜 PENDING
+- [ ] Task 9: Add sales order API to frontend services (30 min)
+- [ ] Task 10: Add invoice API to frontend services (30 min)
+
+**Phase 5: Frontend UI - Quotation Updates** 🔜 PENDING
+- [ ] Task 11: Update quotation detail page with convert to order button (1-1.5 hours)
+
+**Phase 6: Frontend UI - Sales Orders** 🔜 PENDING
+- [ ] Task 12: Create sales order list page UI (2-3 hours)
+- [ ] Task 13: Create sales order detail page UI with status actions (3-4 hours)
+
+**Phase 7: Frontend UI - Invoices** 🔜 PENDING
+- [ ] Task 14: Create invoice list page UI (2-3 hours)
+- [ ] Task 15: Create invoice detail page UI (2-3 hours)
+
+**Phase 8: Navigation & Integration** 🔜 PENDING
+- [ ] Task 16: Add navigation menu items for orders and invoices (30 min)
+
+**Phase 9: Testing & Validation** 🔜 PENDING
+- [ ] Task 17: Test complete workflow: quotation → order → invoice (2-3 hours)
+
+**Key Features**:
+- ✅ Manual conversion: User clicks button to convert quotation to order
+- ✅ Automatic stock deduction when order created
+- ✅ Stock restoration when order cancelled
+- ✅ Context-sensitive action buttons based on status
+- ✅ Invoice creation through sales order
+- ✅ PDF generation for all document types
+- ✅ Document cross-references (Quotation N° → Sales Order N° → Invoice N°)
+
+**Database Schema** (to be created):
+```sql
+-- sales_orders table
+- id (UUID)
+- order_number (VARCHAR, unique)
+- quotation_id (UUID, FK)
+- contact_id (UUID, FK)
+- status (VARCHAR: en_cours, en_preparation, expedie, livre, termine, annule)
+- order_date, expected_delivery_date, shipped_date, delivered_date
+- subtotal, discount_amount, tax_amount, total_amount
+- delivery_address, tracking_number
+- invoice_id (UUID, FK)
+
+-- invoices table
+- id (UUID)
+- invoice_number (VARCHAR, unique)
+- sales_order_id (UUID, FK)
+- contact_id (UUID, FK)
+- status (VARCHAR: brouillon, envoyee, payee, annulee)
+- invoice_date, due_date, payment_date
+- subtotal, discount_amount, tax_amount, total_amount
+- payment_method, payment_reference
+```
+
+**Files to Create/Modify**:
+- `backend/src/database/migrations/006_create_sales_orders_table.sql`
+- `backend/src/database/migrations/007_create_invoices_table.sql`
+- `backend/src/database/migrations/008_update_quotations_with_order_ref.sql`
+- `backend/src/routes/sales-orders.ts`
+- `backend/src/routes/invoices.ts`
+- `frontend/src/services/api.ts` (add salesOrdersApi, invoicesApi)
+- `frontend/src/pages/sales-orders/SalesOrderList.tsx`
+- `frontend/src/pages/sales-orders/SalesOrderDetail.tsx`
+- `frontend/src/pages/invoices/InvoiceList.tsx`
+- `frontend/src/pages/invoices/InvoiceDetail.tsx`
+
+#### 2. Product Image Upload System (WP2 - Complete ✅)
+**Status**: Fully working
 
 **Completed**:
 - ✅ MinIO integration for object storage
@@ -650,13 +758,7 @@ This project is proprietary software. See LICENSE file for details.
   - useRef pattern to prevent stale closures
   - Preview generation with FileReader
 
-**Known Issues** (To Fix Tomorrow):
-1. ❌ Images not persisting after save - UI doesn't update properly
-2. ❌ Images don't reload when reopening product form
-3. ❌ Toast notifications not appearing consistently
-4. ❌ Gallery not refreshing after upload completes
-
-**Files Modified**:
+**Files Created/Modified**:
 ```
 backend/src/config/minio.ts (NEW)
 backend/src/middleware/upload.ts (NEW)
@@ -668,52 +770,48 @@ frontend/src/pages/products/ProductForm.tsx (MODIFIED - useEffect for state sync
 frontend/src/pages/products/ProductManagement.tsx (MODIFIED - image gallery in details view)
 ```
 
-#### 2. Product Materials System
-**Status**: Complete
+#### 3. Product Materials System (WP3 - Complete ✅)
+**Status**: Completed
 
-- Product-Material-Finish relationship implemented
-- Accordion UI for material entries
-- Dynamic add/remove materials
-- Supplier field persistence fixed
+- ✅ Product-Material-Finish relationship implemented
+- ✅ Accordion UI for material entries
+- ✅ Dynamic add/remove materials
+- ✅ Supplier field persistence fixed
 
-#### 3. Authentication & Routes Restructure
-**Status**: Complete
+#### 4. Authentication & Routes Restructure (WP4 - Complete ✅)
+**Status**: Completed
 
-- Simplified route structure
-- JWT authentication middleware
-- Auth routes: login, register, logout
-- Protected API endpoints
+- ✅ Simplified route structure
+- ✅ JWT authentication middleware
+- ✅ Auth routes: login, register, logout
+- ✅ Protected API endpoints
 
-### Work In Progress (WIP) for Tomorrow
+#### 5. Company Settings & PDF Generation (WP5 - Complete ✅)
+**Status**: Completed
 
-#### Priority 1: Fix Image Upload UI Issues
-**Problem**: Images upload to MinIO and save to DB, but UI doesn't reflect changes properly
+- ✅ Company settings page with form (Settings.tsx)
+- ✅ Backend API endpoints for company settings
+- ✅ PDF generator for quotations with optimized layout
+- ✅ Fixed table column truncation issue
+- ✅ Compact header layout with company info
+- ✅ Professional footer with signature boxes
+- ✅ Document cross-references support
 
-**Debug Steps**:
-1. Check React state updates in ProductForm
-2. Verify query invalidation after image upload
-3. Test image loading on form reopen
-4. Check toast notification rendering
-5. Verify gallery re-render triggers
+**Files Created**:
+- `frontend/src/pages/Settings.tsx`
+- `frontend/src/services/pdfGenerator.ts`
+- `backend/src/routes/settings.routes.ts` (assumed)
 
-**Potential Issues**:
-- State not triggering re-renders
-- Query cache not invalidating
-- useEffect dependency array issues
-- Component not receiving updated props
+### Next Development Session
 
-#### Priority 2: Product Management Improvements
-- [ ] Test complete product creation workflow with images
-- [ ] Verify image persistence across sessions
-- [ ] Test image deletion
-- [ ] Test main image selection
-- [ ] Add image preview in product list view
+#### Priority 1: Complete Sales Order & Invoice Workflow (WP1)
+Start with database migrations and backend API implementation. See task list above.
 
-#### Priority 3: Database & API Optimization
-- [ ] Add proper error handling for MinIO operations
-- [ ] Implement image size optimization before upload
-- [ ] Add image CDN configuration for production
-- [ ] Create database backup scripts
+#### Priority 2: Dashboard Analytics (WP6 - Future)
+- [ ] Real-time sales metrics
+- [ ] Performance by sales rep
+- [ ] Customer analytics
+- [ ] Product performance dashboard
 
 ### Development Environment
 
@@ -739,31 +837,51 @@ frontend/src/pages/products/ProductManagement.tsx (MODIFIED - image gallery in d
 
 ### Troubleshooting Notes
 
-**Image Upload Debug Log Pattern**:
-```
-handleFiles called with X files, productId: [uuid]
-Adding X new images. Current images: Y
-Starting uploads for X images
-Uploading image: [imageId] productId: [uuid]
-uploadToServer called for imageId: [imageId]
-Upload complete, status: 200
-Upload successful, image: {url: '...', filename: '...'}
-Updated images: [{...}]
-```
-
 **Common Issues**:
-- Port 4000 EADDRINUSE: Multiple node processes running - kill with `lsof -ti:4000 | xargs kill -9`
-- MinIO not initialized: Check Docker container running with `docker ps | grep minio`
-- Redis connection errors: Restart Redis container
+- **Port 4000 EADDRINUSE**: Multiple node processes running
+  ```bash
+  lsof -ti:4000 | xargs kill -9
+  ```
+- **MinIO not initialized**: Check Docker container running
+  ```bash
+  docker ps | grep minio
+  ```
+- **Redis connection errors**: Restart Redis container
+  ```bash
+  docker-compose restart redis
+  ```
+- **Database migration issues**: Check migration status and rollback if needed
+  ```bash
+  cd backend
+  npm run migrate:status
+  npm run migrate:down  # if needed
+  ```
 
-### Next Session TODO
-1. Debug why images array updates aren't triggering UI re-renders
-2. Fix ProductForm state synchronization 
-3. Test complete image upload workflow end-to-end
-4. Add error boundaries for better error handling
-5. Clean up console.log statements added for debugging
-6. Add loading states during image operations
-7. Implement optimistic UI updates for better UX
+### Development Notes
+
+**Database Migration Naming Convention**:
+- Use sequential numbers: `001_`, `002_`, etc.
+- Descriptive names: `create_sales_orders_table`, `add_column_to_table`
+- Example: `006_create_sales_orders_table.sql`
+
+**API Response Format**:
+```typescript
+// Success
+{ success: true, data: {...}, message: 'Operation successful' }
+
+// Error
+{ success: false, error: 'Error message', code: 'ERROR_CODE' }
+```
+
+**Frontend Query Keys Convention**:
+```typescript
+['quotations']           // List all quotations
+['quotations', id]       // Single quotation
+['sales-orders']         // List all sales orders
+['sales-orders', id]     // Single sales order
+['invoices']            // List all invoices
+['invoices', id]        // Single invoice
+```
 
 ---
 

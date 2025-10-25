@@ -121,7 +121,8 @@ export function ProductForm({ onClose, onSubmit, product, categories = [], mater
           ...m,
           finishId: m.finishId === 'none' ? null : m.finishId,
         })),
-      images: productImages,
+      // Don't include images - they're managed separately via upload/delete endpoints
+      // images: productImages,
     }
     onSubmit(data)
     onClose()

@@ -91,195 +91,187 @@ export class PDFGenerator {
   }
 
   private drawHeader(company: Company, quotation: Quotation) {
-    // Company Logo and Info
+    // Quotation Number and Title in top left - compact
     this.doc.setFont('helvetica', 'bold')
-    this.doc.setFontSize(20)
+    this.doc.setFontSize(16)
     this.doc.setTextColor(this.primaryColor)
-    this.doc.text(company.name, this.margin, this.currentY)
+    this.doc.text('DEVIS', this.margin, this.currentY)
 
-    this.currentY += 8
     this.doc.setFont('helvetica', 'normal')
-    this.doc.setFontSize(10)
+    this.doc.setFontSize(11)
+    this.doc.text(`N° ${quotation.number}`, this.margin + 25, this.currentY)
+
+    // Company info on the right - compact
+    let rightY = this.currentY
+    this.doc.setFont('helvetica', 'bold')
+    this.doc.setFontSize(12)
+    this.doc.setTextColor(this.primaryColor)
+    this.doc.text(company.name, this.pageWidth - this.margin, rightY, { align: 'right' })
+
+    rightY += 5
+    this.doc.setFont('helvetica', 'normal')
+    this.doc.setFontSize(8)
     this.doc.setTextColor(this.textColor)
-    this.doc.text(company.address, this.margin, this.currentY)
+    this.doc.text(company.address, this.pageWidth - this.margin, rightY, { align: 'right' })
 
-    this.currentY += 5
-    this.doc.text(`${company.postalCode} ${company.city}, ${company.country}`, this.margin, this.currentY)
+    rightY += 4
+    this.doc.text(`${company.postalCode} ${company.city}`, this.pageWidth - this.margin, rightY, { align: 'right' })
 
-    this.currentY += 5
+    rightY += 4
     if (company.phone) {
-      this.doc.text(`Tél: ${company.phone}`, this.margin, this.currentY)
-      this.currentY += 5
+      this.doc.text(`Tél: ${company.phone}`, this.pageWidth - this.margin, rightY, { align: 'right' })
+      rightY += 4
     }
     if (company.email) {
-      this.doc.text(`Email: ${company.email}`, this.margin, this.currentY)
-      this.currentY += 5
-    }
-    if (company.website) {
-      this.doc.text(`Web: ${company.website}`, this.margin, this.currentY)
-      this.currentY += 5
+      this.doc.text(`Email: ${company.email}`, this.pageWidth - this.margin, rightY, { align: 'right' })
+      rightY += 4
     }
 
-    // SIRET and TVA on the right
+    // SIRET and TVA below company info
     if (company.siret || company.tva) {
-      let rightY = 25
-      this.doc.setFontSize(9)
+      this.doc.setFontSize(7)
       this.doc.setTextColor(this.lightGray)
 
       if (company.siret) {
         this.doc.text(`SIRET: ${company.siret}`, this.pageWidth - this.margin, rightY, { align: 'right' })
-        rightY += 4
+        rightY += 3
       }
       if (company.tva) {
         this.doc.text(`TVA: ${company.tva}`, this.pageWidth - this.margin, rightY, { align: 'right' })
       }
     }
 
-    // Quotation Title
-    this.currentY += 10
+    // Set currentY to the max of left and right sections
+    this.currentY = Math.max(this.currentY + 8, rightY + 4)
+
+    // Separator line
     this.doc.setDrawColor(this.primaryColor)
-    this.doc.setLineWidth(0.5)
+    this.doc.setLineWidth(0.3)
     this.doc.line(this.margin, this.currentY, this.pageWidth - this.margin, this.currentY)
-
-    this.currentY += 10
-    this.doc.setFont('helvetica', 'bold')
-    this.doc.setFontSize(24)
-    this.doc.setTextColor(this.primaryColor)
-    this.doc.text('DEVIS', this.pageWidth / 2, this.currentY, { align: 'center' })
-
-    this.currentY += 8
-    this.doc.setFont('helvetica', 'normal')
-    this.doc.setFontSize(12)
-    this.doc.setTextColor(this.textColor)
-    this.doc.text(`N° ${quotation.number}`, this.pageWidth / 2, this.currentY, { align: 'center' })
-
-    this.currentY += 10
-    this.doc.setLineWidth(0.5)
-    this.doc.line(this.margin, this.currentY, this.pageWidth - this.margin, this.currentY)
-    this.currentY += 10
+    this.currentY += 6
   }
 
   private drawClientInfo(client: Client, quotation: Quotation) {
-    // Date and validity on the left
+    // Add some space after the separator line
+    this.currentY += 2
+
+    // Date and validity on the left - compact
     this.doc.setFont('helvetica', 'bold')
-    this.doc.setFontSize(10)
+    this.doc.setFontSize(9)
     this.doc.setTextColor(this.textColor)
-    this.doc.text('Date du devis:', this.margin, this.currentY)
+    this.doc.text('Date:', this.margin, this.currentY)
 
     this.doc.setFont('helvetica', 'normal')
+    this.doc.setFontSize(8)
     this.doc.text(
-      quotation.date.toLocaleDateString('fr-FR', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-      }),
-      this.margin + 30,
+      quotation.date.toLocaleDateString('fr-FR'),
+      this.margin + 12,
       this.currentY
     )
 
-    this.currentY += 5
+    this.currentY += 4
     this.doc.setFont('helvetica', 'bold')
-    this.doc.text('Valide jusqu\'au:', this.margin, this.currentY)
+    this.doc.setFontSize(9)
+    this.doc.text('Validité:', this.margin, this.currentY)
 
     this.doc.setFont('helvetica', 'normal')
+    this.doc.setFontSize(8)
     this.doc.text(
-      quotation.validUntil.toLocaleDateString('fr-FR', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-      }),
-      this.margin + 30,
+      quotation.validUntil.toLocaleDateString('fr-FR'),
+      this.margin + 12,
       this.currentY
     )
 
-    // Client info on the right
-    const clientBoxX = this.pageWidth / 2 + 10
-    const clientBoxY = this.currentY - 5
+    // Client info on the right - compact box (positioned lower)
+    const clientBoxX = this.pageWidth / 2 + 5
+    const clientBoxY = this.currentY - 2  // Changed from -4 to -2 to move box down
     const clientBoxWidth = this.pageWidth - this.margin - clientBoxX
-    const clientBoxHeight = 35
+    const clientBoxHeight = 28
 
     // Draw client box
     this.doc.setDrawColor(this.lightGray)
-    this.doc.setLineWidth(0.3)
-    this.doc.rect(clientBoxX, clientBoxY - 10, clientBoxWidth, clientBoxHeight)
+    this.doc.setLineWidth(0.2)
+    this.doc.rect(clientBoxX, clientBoxY - 8, clientBoxWidth, clientBoxHeight)
 
     // Client title
     this.doc.setFont('helvetica', 'bold')
-    this.doc.setFontSize(10)
+    this.doc.setFontSize(8)
     this.doc.setTextColor(this.primaryColor)
-    this.doc.text('CLIENT', clientBoxX + 5, clientBoxY - 5)
+    this.doc.text('CLIENT', clientBoxX + 3, clientBoxY - 4)
 
     // Client details
-    let clientY = clientBoxY + 2
+    let clientY = clientBoxY + 1
     this.doc.setFont('helvetica', 'bold')
-    this.doc.setFontSize(10)
+    this.doc.setFontSize(9)
     this.doc.setTextColor(this.textColor)
-    this.doc.text(client.name, clientBoxX + 5, clientY)
+    this.doc.text(client.name, clientBoxX + 3, clientY)
 
-    clientY += 5
+    clientY += 4
     if (client.company) {
       this.doc.setFont('helvetica', 'normal')
-      this.doc.text(client.company, clientBoxX + 5, clientY)
-      clientY += 5
+      this.doc.setFontSize(8)
+      this.doc.text(client.company, clientBoxX + 3, clientY)
+      clientY += 3.5
     }
 
     this.doc.setFont('helvetica', 'normal')
-    this.doc.setFontSize(9)
-    this.doc.text(client.address, clientBoxX + 5, clientY)
+    this.doc.setFontSize(8)
+    this.doc.text(client.address, clientBoxX + 3, clientY)
 
-    clientY += 4
-    this.doc.text(`${client.postalCode} ${client.city}`, clientBoxX + 5, clientY)
+    clientY += 3.5
+    this.doc.text(`${client.postalCode} ${client.city}`, clientBoxX + 3, clientY)
 
     if (client.phone) {
-      clientY += 4
-      this.doc.text(`Tél: ${client.phone}`, clientBoxX + 5, clientY)
+      clientY += 3.5
+      this.doc.text(`Tél: ${client.phone}`, clientBoxX + 3, clientY)
     }
 
-    if (client.email) {
-      clientY += 4
-      this.doc.text(client.email, clientBoxX + 5, clientY)
-    }
-
-    this.currentY = Math.max(this.currentY + 10, clientBoxY + clientBoxHeight)
+    this.currentY = Math.max(this.currentY + 6, clientBoxY + clientBoxHeight)
   }
 
   private drawItemsTable(items: QuotationItem[]) {
-    this.currentY += 10
+    this.currentY += 6
 
-    // Table headers
-    const headers = ['Description', 'Qté', 'Prix Unit.', 'Remise', 'TVA', 'Total HT']
-    const columnWidths = [80, 15, 25, 20, 20, 30]
+    // Table headers - optimized column widths to prevent truncation
+    const headers = ['Description', 'Qté', 'P.U. HT', 'Rem.', 'TVA', 'Total HT']
+    // Adjusted widths: Description slightly smaller, Total larger to fit numbers
+    const columnWidths = [70, 12, 22, 16, 12, 38]
     const tableX = this.margin
+    const tableWidth = this.pageWidth - 2 * this.margin
 
     // Draw header background
     this.doc.setFillColor(this.primaryColor)
-    this.doc.rect(tableX, this.currentY, this.pageWidth - 2 * this.margin, 8, 'F')
+    this.doc.rect(tableX, this.currentY, tableWidth, 7, 'F')
 
     // Draw header text
     this.doc.setFont('helvetica', 'bold')
-    this.doc.setFontSize(10)
+    this.doc.setFontSize(9)
     this.doc.setTextColor('#ffffff')
 
     let currentX = tableX
     headers.forEach((header, index) => {
-      this.doc.text(header, currentX + 2, this.currentY + 5.5)
+      const alignment = index === headers.length - 1 ? 'right' : 'left'
+      const xPos = alignment === 'right'
+        ? currentX + columnWidths[index] - 2
+        : currentX + 2
+      this.doc.text(header, xPos, this.currentY + 4.5, { align: alignment })
       currentX += columnWidths[index]
     })
 
-    this.currentY += 8
+    this.currentY += 7
 
     // Draw items
     this.doc.setFont('helvetica', 'normal')
-    this.doc.setFontSize(9)
+    this.doc.setFontSize(8)
     this.doc.setTextColor(this.textColor)
 
     items.forEach((item, index) => {
-      this.addNewPageIfNeeded(20)
+      this.addNewPageIfNeeded(15)
 
       // Alternate row background
       if (index % 2 === 1) {
         this.doc.setFillColor('#f9fafb')
-        this.doc.rect(tableX, this.currentY, this.pageWidth - 2 * this.margin, 7, 'F')
+        this.doc.rect(tableX, this.currentY, tableWidth, 6, 'F')
       }
 
       currentX = tableX
@@ -289,162 +281,161 @@ export class PDFGenerator {
       const lineCount = descriptionLines.length
 
       descriptionLines.forEach((line, lineIndex) => {
-        this.doc.text(line, currentX + 2, this.currentY + 5 + (lineIndex * 4))
+        this.doc.text(line, currentX + 2, this.currentY + 4 + (lineIndex * 3.5))
       })
 
       currentX += columnWidths[0]
 
-      // Quantity
-      this.doc.text(item.quantity.toString(), currentX + 2, this.currentY + 5)
+      // Quantity - centered
+      this.doc.text(item.quantity.toString(), currentX + columnWidths[1] / 2, this.currentY + 4, { align: 'center' })
       currentX += columnWidths[1]
 
-      // Unit price
-      this.doc.text(`${item.unitPrice.toFixed(2)} €`, currentX + 2, this.currentY + 5)
+      // Unit price - right aligned
+      this.doc.text(`${item.unitPrice.toFixed(2)}€`, currentX + columnWidths[2] - 2, this.currentY + 4, { align: 'right' })
       currentX += columnWidths[2]
 
-      // Discount
+      // Discount - centered
       if (item.discount) {
         const discountText = item.discountType === 'percent'
           ? `${item.discount}%`
-          : `${item.discount.toFixed(2)} €`
-        this.doc.text(discountText, currentX + 2, this.currentY + 5)
+          : `${item.discount.toFixed(2)}€`
+        this.doc.text(discountText, currentX + columnWidths[3] / 2, this.currentY + 4, { align: 'center' })
       } else {
-        this.doc.text('-', currentX + 2, this.currentY + 5)
+        this.doc.text('-', currentX + columnWidths[3] / 2, this.currentY + 4, { align: 'center' })
       }
       currentX += columnWidths[3]
 
-      // Tax
-      this.doc.text(`${item.tax}%`, currentX + 2, this.currentY + 5)
+      // Tax - centered
+      this.doc.text(`${item.tax}%`, currentX + columnWidths[4] / 2, this.currentY + 4, { align: 'center' })
       currentX += columnWidths[4]
 
-      // Total
+      // Total - right aligned with bold
       this.doc.setFont('helvetica', 'bold')
-      this.doc.text(`${item.total.toFixed(2)} €`, currentX + 2, this.currentY + 5)
+      this.doc.text(`${item.total.toFixed(2)} €`, currentX + columnWidths[5] - 2, this.currentY + 4, { align: 'right' })
       this.doc.setFont('helvetica', 'normal')
 
-      this.currentY += Math.max(7, lineCount * 4 + 3)
+      this.currentY += Math.max(6, lineCount * 3.5 + 2)
 
       // Draw separator line
       this.doc.setDrawColor(this.lightGray)
       this.doc.setLineWidth(0.1)
       this.doc.line(tableX, this.currentY, this.pageWidth - this.margin, this.currentY)
-      this.currentY += 1
+      this.currentY += 0.5
     })
   }
 
   private drawTotals(quotation: Quotation) {
-    this.currentY += 10
+    this.currentY += 6
 
-    const totalsX = this.pageWidth - this.margin - 70
-    const labelX = totalsX - 30
+    const totalsX = this.pageWidth - this.margin - 60
+    const labelX = totalsX - 35
 
     // Subtotal
     this.doc.setFont('helvetica', 'normal')
-    this.doc.setFontSize(10)
+    this.doc.setFontSize(9)
     this.doc.setTextColor(this.textColor)
     this.doc.text('Sous-total HT:', labelX, this.currentY, { align: 'right' })
-    this.doc.text(`${quotation.subtotal.toFixed(2)} €`, totalsX + 60, this.currentY, { align: 'right' })
+    this.doc.text(`${quotation.subtotal.toFixed(2)} €`, totalsX + 50, this.currentY, { align: 'right' })
 
-    this.currentY += 6
+    this.currentY += 5
 
     // Discount if any
     if (quotation.totalDiscount > 0) {
       this.doc.text('Remise totale:', labelX, this.currentY, { align: 'right' })
-      this.doc.text(`-${quotation.totalDiscount.toFixed(2)} €`, totalsX + 60, this.currentY, { align: 'right' })
-      this.currentY += 6
+      this.doc.text(`-${quotation.totalDiscount.toFixed(2)} €`, totalsX + 50, this.currentY, { align: 'right' })
+      this.currentY += 5
     }
 
     // Tax
     this.doc.text('TVA:', labelX, this.currentY, { align: 'right' })
-    this.doc.text(`${quotation.totalTax.toFixed(2)} €`, totalsX + 60, this.currentY, { align: 'right' })
+    this.doc.text(`${quotation.totalTax.toFixed(2)} €`, totalsX + 50, this.currentY, { align: 'right' })
 
-    this.currentY += 8
+    this.currentY += 6
 
     // Draw total line
     this.doc.setDrawColor(this.primaryColor)
-    this.doc.setLineWidth(0.5)
-    this.doc.line(labelX - 20, this.currentY, totalsX + 60, this.currentY)
+    this.doc.setLineWidth(0.4)
+    this.doc.line(labelX - 15, this.currentY, totalsX + 50, this.currentY)
 
-    this.currentY += 8
+    this.currentY += 6
 
     // Total
     this.doc.setFont('helvetica', 'bold')
-    this.doc.setFontSize(12)
+    this.doc.setFontSize(11)
     this.doc.setTextColor(this.primaryColor)
     this.doc.text('TOTAL TTC:', labelX, this.currentY, { align: 'right' })
-    this.doc.text(`${quotation.total.toFixed(2)} €`, totalsX + 60, this.currentY, { align: 'right' })
+    this.doc.text(`${quotation.total.toFixed(2)} €`, totalsX + 50, this.currentY, { align: 'right' })
   }
 
   private drawFooter(quotation: Quotation) {
-    // Notes
+    // Notes - compact
     if (quotation.notes) {
-      this.currentY += 20
-      this.addNewPageIfNeeded(40)
+      this.currentY += 12
+      this.addNewPageIfNeeded(30)
 
       this.doc.setFont('helvetica', 'bold')
-      this.doc.setFontSize(10)
+      this.doc.setFontSize(9)
       this.doc.setTextColor(this.textColor)
       this.doc.text('Notes:', this.margin, this.currentY)
 
-      this.currentY += 5
-      this.doc.setFont('helvetica', 'normal')
-      this.doc.setFontSize(9)
-      const notesLines = this.doc.splitTextToSize(quotation.notes, this.pageWidth - 2 * this.margin)
-      notesLines.forEach(line => {
-        this.doc.text(line, this.margin, this.currentY)
-        this.currentY += 4
-      })
-    }
-
-    // Terms and conditions
-    if (quotation.termsAndConditions) {
-      this.currentY += 10
-      this.addNewPageIfNeeded(40)
-
-      this.doc.setFont('helvetica', 'bold')
-      this.doc.setFontSize(10)
-      this.doc.setTextColor(this.textColor)
-      this.doc.text('Conditions générales:', this.margin, this.currentY)
-
-      this.currentY += 5
+      this.currentY += 4
       this.doc.setFont('helvetica', 'normal')
       this.doc.setFontSize(8)
-      const termsLines = this.doc.splitTextToSize(quotation.termsAndConditions, this.pageWidth - 2 * this.margin)
-      termsLines.forEach(line => {
+      const notesLines = this.doc.splitTextToSize(quotation.notes, this.pageWidth - 2 * this.margin)
+      notesLines.forEach(line => {
         this.doc.text(line, this.margin, this.currentY)
         this.currentY += 3.5
       })
     }
 
-    // Signature boxes
-    this.currentY = this.pageHeight - 50
+    // Terms and conditions - compact
+    if (quotation.termsAndConditions) {
+      this.currentY += 8
+      this.addNewPageIfNeeded(30)
 
-    // Client signature box
-    const sigBoxWidth = 70
-    const sigBoxHeight = 30
+      this.doc.setFont('helvetica', 'bold')
+      this.doc.setFontSize(9)
+      this.doc.setTextColor(this.textColor)
+      this.doc.text('Conditions générales:', this.margin, this.currentY)
+
+      this.currentY += 4
+      this.doc.setFont('helvetica', 'normal')
+      this.doc.setFontSize(7)
+      const termsLines = this.doc.splitTextToSize(quotation.termsAndConditions, this.pageWidth - 2 * this.margin)
+      termsLines.forEach(line => {
+        this.doc.text(line, this.margin, this.currentY)
+        this.currentY += 3
+      })
+    }
+
+    // Signature boxes - compact
+    this.currentY = this.pageHeight - 45
+
+    const sigBoxWidth = 65
+    const sigBoxHeight = 25
 
     this.doc.setDrawColor(this.lightGray)
-    this.doc.setLineWidth(0.3)
+    this.doc.setLineWidth(0.2)
     this.doc.rect(this.margin, this.currentY, sigBoxWidth, sigBoxHeight)
 
     this.doc.setFont('helvetica', 'normal')
-    this.doc.setFontSize(9)
+    this.doc.setFontSize(8)
     this.doc.setTextColor(this.textColor)
-    this.doc.text('Signature du client:', this.margin + 2, this.currentY - 2)
-    this.doc.text('Date:', this.margin + 2, this.currentY + sigBoxHeight + 4)
+    this.doc.text('Signature client', this.margin + 2, this.currentY - 2)
+    this.doc.text('Date:', this.margin + 2, this.currentY + sigBoxHeight + 3)
 
     // Company signature box
     this.doc.rect(this.pageWidth - this.margin - sigBoxWidth, this.currentY, sigBoxWidth, sigBoxHeight)
-    this.doc.text('Signature et cachet:', this.pageWidth - this.margin - sigBoxWidth + 2, this.currentY - 2)
-    this.doc.text('Date:', this.pageWidth - this.margin - sigBoxWidth + 2, this.currentY + sigBoxHeight + 4)
+    this.doc.text('Signature & cachet', this.pageWidth - this.margin - sigBoxWidth + 2, this.currentY - 2)
+    this.doc.text('Date:', this.pageWidth - this.margin - sigBoxWidth + 2, this.currentY + sigBoxHeight + 3)
 
-    // Footer text
-    this.doc.setFontSize(8)
+    // Footer text - compact
+    this.doc.setFontSize(7)
     this.doc.setTextColor(this.lightGray)
     this.doc.text(
-      'Ce devis est valable pour une durée de 30 jours à compter de sa date d\'émission.',
+      'Devis valable 30 jours.',
       this.pageWidth / 2,
-      this.pageHeight - 10,
+      this.pageHeight - 8,
       { align: 'center' }
     )
   }

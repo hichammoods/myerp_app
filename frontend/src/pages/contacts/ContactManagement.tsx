@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -31,7 +32,8 @@ import {
   Globe,
   Clock,
   Package,
-  TrendingUp
+  TrendingUp,
+  Loader2
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -49,140 +51,149 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api'
+
 export function ContactManagement() {
+  const queryClient = useQueryClient()
   const [showForm, setShowForm] = useState(false)
   const [showDetails, setShowDetails] = useState(false)
   const [editingContact, setEditingContact] = useState<any>(null)
   const [viewingContact, setViewingContact] = useState<any>(null)
-  const [searchTerm, setSearchTerm] = useState('')
+  const [searchInput, setSearchInput] = useState('')  // User input (not debounced)
+  const [searchTerm, setSearchTerm] = useState('')     // Debounced search term
   const [filterType, setFilterType] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
 
-  // Mock data for demonstration
-  const [contacts, setContacts] = useState([
-    {
-      id: 1,
-      type: 'client',
-      company_name: 'Meubles Modernes SARL',
-      first_name: 'Jean',
-      last_name: 'Dupont',
-      email: 'jean.dupont@meublesmodernes.fr',
-      phone: '+33 1 23 45 67 89',
-      mobile: '+33 6 12 34 56 78',
-      address: '123 rue de la Paix',
-      city: 'Paris',
-      postal_code: '75001',
-      country: 'France',
-      is_active: true,
-      orders_count: 12,
-      total_revenue: 45000,
-      last_order_date: '2024-01-15',
-      tags: ['VIP', 'Récurrent']
+  // Get auth token
+  const token = localStorage.getItem('access_token')
+
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchTerm(searchInput)
+    }, 300) // 300ms debounce
+
+    return () => clearTimeout(timer)
+  }, [searchInput])
+
+  // Fetch contacts from API
+  const { data: contactsData, isLoading, error } = useQuery({
+    queryKey: ['contacts', searchTerm, filterType, filterStatus],
+    queryFn: async () => {
+      const params = new URLSearchParams()
+      if (searchTerm) params.append('search', searchTerm)
+      if (filterType !== 'all') params.append('type', filterType)
+      // Fix: Backend expects is_active as boolean, not status
+      if (filterStatus === 'active') params.append('is_active', 'true')
+      if (filterStatus === 'inactive') params.append('is_active', 'false')
+
+      const response = await fetch(`${API_URL}/contacts?${params.toString()}`, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch contacts')
+      }
+
+      const data = await response.json()
+      return data
     },
-    {
-      id: 2,
-      type: 'prospect',
-      company_name: 'Design Intérieur Pro',
-      first_name: 'Marie',
-      last_name: 'Martin',
-      email: 'marie@designinterieur.fr',
-      phone: '+33 1 98 76 54 32',
-      mobile: '+33 6 98 76 54 32',
-      address: '456 avenue des Champs',
-      city: 'Lyon',
-      postal_code: '69000',
-      country: 'France',
-      is_active: true,
-      orders_count: 0,
-      total_revenue: 0,
-      last_order_date: null,
-      tags: ['Nouveau']
+    enabled: !!token,
+  })
+
+  // Create contact mutation
+  const createContactMutation = useMutation({
+    mutationFn: async (contactData: any) => {
+      const response = await fetch(`${API_URL}/contacts`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(contactData),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to create contact')
+      }
+
+      return response.json()
     },
-    {
-      id: 3,
-      type: 'fournisseur',
-      company_name: 'Bois de France SA',
-      first_name: 'Pierre',
-      last_name: 'Bernard',
-      email: 'p.bernard@boisdefrance.com',
-      phone: '+33 2 45 67 89 01',
-      mobile: '+33 7 45 67 89 01',
-      address: '789 zone industrielle',
-      city: 'Nantes',
-      postal_code: '44000',
-      country: 'France',
-      is_active: true,
-      orders_count: 0,
-      total_revenue: 0,
-      last_order_date: null,
-      tags: ['Matériaux', 'Fiable']
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['contacts'] })
+      toast.success('Contact créé avec succès')
+      setShowForm(false)
+      setEditingContact(null)
     },
-    {
-      id: 4,
-      type: 'client',
-      company_name: 'Hôtel Luxe Palace',
-      first_name: 'Sophie',
-      last_name: 'Leroy',
-      email: 'sleroy@luxepalace.com',
-      phone: '+33 1 55 66 77 88',
-      mobile: '+33 6 55 66 77 88',
-      address: '10 place Vendôme',
-      city: 'Paris',
-      postal_code: '75001',
-      country: 'France',
-      is_active: false,
-      orders_count: 8,
-      total_revenue: 120000,
-      last_order_date: '2023-11-20',
-      tags: ['Entreprise', 'Grand compte']
-    }
-  ])
+    onError: (error: any) => {
+      toast.error(error.message || 'Erreur lors de la création du contact')
+    },
+  })
 
-  // Filter contacts based on search and filters
-  const filteredContacts = useMemo(() => {
-    return contacts.filter(contact => {
-      // Search filter
-      const searchLower = searchTerm.toLowerCase()
-      const matchesSearch = !searchTerm ||
-        contact.company_name.toLowerCase().includes(searchLower) ||
-        contact.first_name.toLowerCase().includes(searchLower) ||
-        contact.last_name.toLowerCase().includes(searchLower) ||
-        contact.email.toLowerCase().includes(searchLower) ||
-        contact.city.toLowerCase().includes(searchLower)
+  // Update contact mutation
+  const updateContactMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: any }) => {
+      const response = await fetch(`${API_URL}/contacts/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(data),
+      })
 
-      // Type filter
-      const matchesType = filterType === 'all' || contact.type === filterType
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to update contact')
+      }
 
-      // Status filter
-      const matchesStatus = filterStatus === 'all' ||
-        (filterStatus === 'active' && contact.is_active) ||
-        (filterStatus === 'inactive' && !contact.is_active)
+      return response.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['contacts'] })
+      toast.success('Contact modifié avec succès')
+      setShowForm(false)
+      setEditingContact(null)
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Erreur lors de la modification du contact')
+    },
+  })
 
-      return matchesSearch && matchesType && matchesStatus
-    })
-  }, [contacts, searchTerm, filterType, filterStatus])
+  // Delete contact mutation
+  const deleteContactMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await fetch(`${API_URL}/contacts/${id}`, {
+        method: 'DELETE',
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to delete contact')
+      }
+
+      return response.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['contacts'] })
+      toast.success('Contact supprimé avec succès')
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Erreur lors de la suppression du contact')
+    },
+  })
+
+  // Get contacts from API response - already filtered by backend
+  const contacts = contactsData?.contacts || []
 
   const handleSaveContact = (data: any) => {
     if (editingContact) {
-      // Update existing contact
-      setContacts(prev => prev.map(c =>
-        c.id === editingContact.id
-          ? { ...editingContact, ...data }
-          : c
-      ))
+      updateContactMutation.mutate({ id: editingContact.id, data })
     } else {
-      // Add new contact
-      const newContact = {
-        ...data,
-        id: contacts.length + 1,
-        orders_count: 0,
-        total_revenue: 0,
-        last_order_date: null
-      }
-      setContacts(prev => [...prev, newContact])
+      createContactMutation.mutate(data)
     }
-    setShowForm(false)
-    setEditingContact(null)
   }
 
   const handleEditContact = (contact: any) => {
@@ -195,10 +206,9 @@ export function ContactManagement() {
     setShowDetails(true)
   }
 
-  const handleDeleteContact = (id: number) => {
+  const handleDeleteContact = (id: string) => {
     if (confirm('Êtes-vous sûr de vouloir supprimer ce contact ?')) {
-      setContacts(prev => prev.filter(c => c.id !== id))
-      toast.success('Contact supprimé avec succès')
+      deleteContactMutation.mutate(id)
     }
   }
 
@@ -216,12 +226,29 @@ export function ContactManagement() {
     switch (type) {
       case 'client':
         return <UserCheck className="h-4 w-4" />
-      case 'prospect':
+      case 'other':
         return <User className="h-4 w-4" />
-      case 'fournisseur':
+      case 'supplier':
         return <Building2 className="h-4 w-4" />
+      case 'partner':
+        return <Users className="h-4 w-4" />
       default:
         return <Users className="h-4 w-4" />
+    }
+  }
+
+  const getTypeLabel = (type: string): string => {
+    switch (type) {
+      case 'client':
+        return 'Client'
+      case 'other':
+        return 'Prospect'
+      case 'supplier':
+        return 'Fournisseur'
+      case 'partner':
+        return 'Partenaire'
+      default:
+        return type
     }
   }
 
@@ -229,9 +256,11 @@ export function ContactManagement() {
     switch (type) {
       case 'client':
         return 'default'
-      case 'prospect':
+      case 'other':
         return 'secondary'
-      case 'fournisseur':
+      case 'supplier':
+        return 'outline'
+      case 'partner':
         return 'outline'
       default:
         return 'outline'
@@ -282,8 +311,8 @@ export function ContactManagement() {
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
                 <Input
                   placeholder="Rechercher par nom, email, ville..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
                   className="pl-10"
                 />
               </div>
@@ -296,9 +325,9 @@ export function ContactManagement() {
               <SelectContent>
                 <SelectItem value="all">Tous les types</SelectItem>
                 <SelectItem value="client">Clients</SelectItem>
-                <SelectItem value="prospect">Prospects</SelectItem>
-                <SelectItem value="fournisseur">Fournisseurs</SelectItem>
-                <SelectItem value="partenaire">Partenaires</SelectItem>
+                <SelectItem value="other">Prospects</SelectItem>
+                <SelectItem value="supplier">Fournisseurs</SelectItem>
+                <SelectItem value="partner">Partenaires</SelectItem>
               </SelectContent>
             </Select>
             <Select value={filterStatus} onValueChange={setFilterStatus}>
@@ -323,7 +352,9 @@ export function ContactManagement() {
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{contacts.length}</div>
+            <div className="text-2xl font-bold">
+              {isLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : contacts.length}
+            </div>
           </CardContent>
         </Card>
         <Card>
@@ -333,7 +364,7 @@ export function ContactManagement() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {contacts.filter(c => c.type === 'client' && c.is_active).length}
+              {isLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : contacts.filter((c: any) => c.type === 'client' && c.is_active === true).length}
             </div>
           </CardContent>
         </Card>
@@ -344,7 +375,7 @@ export function ContactManagement() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {contacts.filter(c => c.type === 'prospect').length}
+              {isLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : contacts.filter((c: any) => c.type === 'other').length}
             </div>
           </CardContent>
         </Card>
@@ -355,7 +386,7 @@ export function ContactManagement() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {contacts.filter(c => c.type === 'fournisseur').length}
+              {isLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : contacts.filter((c: any) => c.type === 'supplier').length}
             </div>
           </CardContent>
         </Card>
@@ -364,16 +395,25 @@ export function ContactManagement() {
       {/* Contacts List */}
       <Card>
         <CardHeader>
-          <CardTitle>Liste des contacts ({filteredContacts.length})</CardTitle>
+          <CardTitle>Liste des contacts ({isLoading ? '...' : contacts.length})</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {filteredContacts.length === 0 ? (
+            {isLoading ? (
+              <div className="text-center py-8 flex items-center justify-center gap-2 text-gray-500">
+                <Loader2 className="h-6 w-6 animate-spin" />
+                Chargement des contacts...
+              </div>
+            ) : error ? (
+              <div className="text-center py-8 text-red-500">
+                Erreur lors du chargement des contacts
+              </div>
+            ) : contacts.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
                 Aucun contact trouvé
               </div>
             ) : (
-              filteredContacts.map(contact => (
+              contacts.map((contact: any) => (
                 <div
                   key={contact.id}
                   className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
@@ -386,12 +426,12 @@ export function ContactManagement() {
                       <div className="flex items-center gap-2">
                         <h4 className="font-semibold">{contact.company_name}</h4>
                         <Badge variant={getTypeBadgeVariant(contact.type)}>
-                          {contact.type}
+                          {getTypeLabel(contact.type)}
                         </Badge>
                         {!contact.is_active && (
                           <Badge variant="destructive">Inactif</Badge>
                         )}
-                        {contact.tags.map((tag: string) => (
+                        {contact.tags && Array.isArray(contact.tags) && contact.tags.map((tag: string) => (
                           <Badge key={tag} variant="secondary">{tag}</Badge>
                         ))}
                       </div>
@@ -410,17 +450,24 @@ export function ContactManagement() {
                         </span>
                         <span className="flex items-center gap-1">
                           <MapPin className="h-3 w-3" />
-                          {contact.city}
+                          {contact.address_city}
                         </span>
                       </div>
-                      {contact.type === 'client' && contact.orders_count > 0 && (
+                      {contact.type === 'client' && contact.quotation_count > 0 && (
                         <div className="flex items-center gap-4 text-sm">
                           <span className="text-gray-600">
-                            {contact.orders_count} commande(s)
+                            {contact.quotation_count} devis
                           </span>
-                          <span className="font-medium">
-                            CA: {formatCurrency(contact.total_revenue)}
-                          </span>
+                          {contact.total_revenue > 0 && (
+                            <span className="font-medium text-green-600">
+                              CA réalisé: {formatCurrency(contact.total_revenue || 0)}
+                            </span>
+                          )}
+                          {contact.potential_revenue > 0 && (
+                            <span className="text-gray-600">
+                              Potentiel: {formatCurrency(contact.potential_revenue || 0)}
+                            </span>
+                          )}
                         </div>
                       )}
                     </div>
@@ -501,28 +548,42 @@ export function ContactManagement() {
                       <h3 className="text-xl font-semibold">{viewingContact.company_name}</h3>
                       <div className="text-sm text-muted-foreground">
                         {viewingContact.first_name} {viewingContact.last_name}
+                        {viewingContact.job_title && ` - ${viewingContact.job_title}`}
                       </div>
+                      {viewingContact.customer_type && (
+                        <div className="text-xs text-muted-foreground mt-1">
+                          {viewingContact.customer_type === 'individual' ? 'Particulier' : 'Société'}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge variant={getTypeBadgeVariant(viewingContact.type)}>
-                      {viewingContact.type}
+                      {getTypeLabel(viewingContact.type)}
                     </Badge>
                     {viewingContact.is_active ? (
                       <Badge variant="success">Actif</Badge>
                     ) : (
                       <Badge variant="destructive">Inactif</Badge>
                     )}
-                    {viewingContact.tags?.map((tag: string) => (
+                    {viewingContact.tags && Array.isArray(viewingContact.tags) && viewingContact.tags.map((tag: string) => (
                       <Badge key={tag} variant="secondary">{tag}</Badge>
                     ))}
                   </div>
                 </div>
                 {viewingContact.type === 'client' && (
-                  <div className="text-right">
-                    <div className="text-2xl font-bold">{formatCurrency(viewingContact.total_revenue)}</div>
-                    <div className="text-sm text-muted-foreground">Chiffre d'affaires total</div>
-                    <div className="text-sm mt-1">{viewingContact.orders_count} commandes</div>
+                  <div className="text-right space-y-1">
+                    <div>
+                      <div className="text-2xl font-bold text-green-600">{formatCurrency(viewingContact.total_revenue || 0)}</div>
+                      <div className="text-xs text-muted-foreground">CA réalisé (accepté)</div>
+                    </div>
+                    {viewingContact.potential_revenue > 0 && (
+                      <div>
+                        <div className="text-lg font-semibold">{formatCurrency(viewingContact.potential_revenue || 0)}</div>
+                        <div className="text-xs text-muted-foreground">CA potentiel (envoyé/brouillon)</div>
+                      </div>
+                    )}
+                    <div className="text-sm mt-2">{viewingContact.quotation_count || 0} devis au total</div>
                   </div>
                 )}
               </div>
@@ -575,62 +636,57 @@ export function ContactManagement() {
                   </CardHeader>
                   <CardContent>
                     <address className="text-sm not-italic space-y-1">
-                      <div>{viewingContact.address}</div>
-                      <div>{viewingContact.postal_code} {viewingContact.city}</div>
-                      <div className="font-medium">{viewingContact.country}</div>
+                      {viewingContact.address_street && <div>{viewingContact.address_street}</div>}
+                      {(viewingContact.address_zip || viewingContact.address_city) && (
+                        <div>{viewingContact.address_zip} {viewingContact.address_city}</div>
+                      )}
+                      {viewingContact.address_state && <div>{viewingContact.address_state}</div>}
+                      {viewingContact.address_country && <div className="font-medium">{viewingContact.address_country}</div>}
                     </address>
                   </CardContent>
                 </Card>
               </div>
 
               {/* Commercial Information */}
-              {(viewingContact.siret || viewingContact.tva_number || viewingContact.payment_terms) && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <CreditCard className="h-4 w-4" />
-                      Informations commerciales
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid gap-4 md:grid-cols-3">
-                      {viewingContact.siret && (
-                        <div>
-                          <div className="text-sm text-muted-foreground">SIRET</div>
-                          <div className="font-medium">{viewingContact.siret}</div>
-                        </div>
-                      )}
-                      {viewingContact.tva_number && (
-                        <div>
-                          <div className="text-sm text-muted-foreground">N° TVA</div>
-                          <div className="font-medium">{viewingContact.tva_number}</div>
-                        </div>
-                      )}
-                      {viewingContact.payment_terms && (
-                        <div>
-                          <div className="text-sm text-muted-foreground">Conditions de paiement</div>
-                          <div className="font-medium">{viewingContact.payment_terms} jours</div>
-                        </div>
-                      )}
-                      {viewingContact.credit_limit && (
-                        <div>
-                          <div className="text-sm text-muted-foreground">Limite de crédit</div>
-                          <div className="font-medium">{formatCurrency(viewingContact.credit_limit)}</div>
-                        </div>
-                      )}
-                      {viewingContact.discount_rate && viewingContact.discount_rate > 0 && (
-                        <div>
-                          <div className="text-sm text-muted-foreground">Taux de remise</div>
-                          <div className="font-medium">{viewingContact.discount_rate}%</div>
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <CreditCard className="h-4 w-4" />
+                    Informations commerciales
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-4 md:grid-cols-3">
+                    {viewingContact.tax_id && (
+                      <div>
+                        <div className="text-sm text-muted-foreground">ID Fiscal / SIRET</div>
+                        <div className="font-medium">{viewingContact.tax_id}</div>
+                      </div>
+                    )}
+                    {viewingContact.payment_terms !== null && viewingContact.payment_terms !== undefined && (
+                      <div>
+                        <div className="text-sm text-muted-foreground">Conditions de paiement</div>
+                        <div className="font-medium">{viewingContact.payment_terms} jours</div>
+                      </div>
+                    )}
+                    {viewingContact.credit_limit !== null && viewingContact.credit_limit !== undefined && (
+                      <div>
+                        <div className="text-sm text-muted-foreground">Limite de crédit</div>
+                        <div className="font-medium">{formatCurrency(viewingContact.credit_limit)}</div>
+                      </div>
+                    )}
+                    {viewingContact.discount_rate && viewingContact.discount_rate > 0 && (
+                      <div>
+                        <div className="text-sm text-muted-foreground">Taux de remise</div>
+                        <div className="font-medium">{viewingContact.discount_rate}%</div>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
 
               {/* Recent Activity */}
-              {viewingContact.type === 'client' && viewingContact.last_order_date && (
+              {viewingContact.type === 'client' && viewingContact.quotation_count > 0 && (
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base flex items-center gap-2">
@@ -641,19 +697,23 @@ export function ContactManagement() {
                   <CardContent>
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
-                        <span className="text-sm text-muted-foreground">Dernière commande</span>
-                        <span className="font-medium">{new Date(viewingContact.last_order_date).toLocaleDateString('fr-FR')}</span>
+                        <span className="text-sm text-muted-foreground">Nombre total de devis</span>
+                        <span className="font-medium">{viewingContact.quotation_count}</span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-sm text-muted-foreground">Nombre total de commandes</span>
-                        <span className="font-medium">{viewingContact.orders_count}</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-muted-foreground">Panier moyen</span>
+                        <span className="text-sm text-muted-foreground">Chiffre d'affaires accepté</span>
                         <span className="font-medium">
-                          {formatCurrency(viewingContact.total_revenue / viewingContact.orders_count)}
+                          {formatCurrency(viewingContact.total_revenue || 0)}
                         </span>
                       </div>
+                      {viewingContact.quotation_count > 0 && viewingContact.total_revenue > 0 && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-muted-foreground">Montant moyen par devis accepté</span>
+                          <span className="font-medium">
+                            {formatCurrency((viewingContact.total_revenue || 0) / (viewingContact.quotation_count || 1))}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -674,6 +734,36 @@ export function ContactManagement() {
                     </p>
                   </CardContent>
                 </Card>
+              )}
+
+              {/* Metadata */}
+              {(viewingContact.created_at || viewingContact.updated_at) && (
+                <div className="flex gap-4 text-xs text-muted-foreground border-t pt-4">
+                  {viewingContact.created_at && (
+                    <div className="flex items-center gap-1">
+                      <Calendar className="h-3 w-3" />
+                      <span>Créé le {new Date(viewingContact.created_at).toLocaleDateString('fr-FR', {
+                        day: '2-digit',
+                        month: 'long',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}</span>
+                    </div>
+                  )}
+                  {viewingContact.updated_at && viewingContact.updated_at !== viewingContact.created_at && (
+                    <div className="flex items-center gap-1">
+                      <Clock className="h-3 w-3" />
+                      <span>Modifié le {new Date(viewingContact.updated_at).toLocaleDateString('fr-FR', {
+                        day: '2-digit',
+                        month: 'long',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}</span>
+                    </div>
+                  )}
+                </div>
               )}
 
               {/* Actions */}

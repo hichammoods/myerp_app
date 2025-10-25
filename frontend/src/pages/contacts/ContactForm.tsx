@@ -29,22 +29,23 @@ interface ContactFormProps {
 export function ContactForm({ contact, onSave, onClose }: ContactFormProps) {
   const [formData, setFormData] = useState({
     type: contact?.type || 'client',
+    customer_type: contact?.customer_type || 'individual',
     company_name: contact?.company_name || '',
     first_name: contact?.first_name || '',
     last_name: contact?.last_name || '',
     email: contact?.email || '',
     phone: contact?.phone || '',
     mobile: contact?.mobile || '',
-    address: contact?.address || '',
-    city: contact?.city || '',
-    postal_code: contact?.postal_code || '',
-    country: contact?.country || 'France',
-    website: contact?.website || '',
-    siret: contact?.siret || '',
-    tva_number: contact?.tva_number || '',
-    payment_terms: contact?.payment_terms || '30',
-    credit_limit: contact?.credit_limit || '',
-    discount_rate: contact?.discount_rate || '0',
+    job_title: contact?.job_title || '',
+    address_street: contact?.address_street || '',
+    address_city: contact?.address_city || '',
+    address_state: contact?.address_state || '',
+    address_zip: contact?.address_zip || '',
+    address_country: contact?.address_country || 'France',
+    tax_id: contact?.tax_id || '',
+    payment_terms: contact?.payment_terms || 30,
+    credit_limit: contact?.credit_limit || 0,
+    discount_rate: contact?.discount_rate || 0,
     notes: contact?.notes || '',
     is_active: contact?.is_active !== undefined ? contact.is_active : true,
     tags: contact?.tags || []
@@ -141,9 +142,9 @@ export function ContactForm({ contact, onSave, onClose }: ContactFormProps) {
                   className="w-full px-3 py-2 border rounded-md"
                 >
                   <option value="client">Client</option>
-                  <option value="prospect">Prospect</option>
-                  <option value="fournisseur">Fournisseur</option>
-                  <option value="partenaire">Partenaire</option>
+                  <option value="other">Prospect</option>
+                  <option value="supplier">Fournisseur</option>
+                  <option value="partner">Partenaire</option>
                 </select>
               </div>
 
@@ -261,11 +262,11 @@ export function ContactForm({ contact, onSave, onClose }: ContactFormProps) {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="address">Adresse</Label>
+                <Label htmlFor="address_street">Adresse</Label>
                 <Input
-                  id="address"
-                  name="address"
-                  value={formData.address}
+                  id="address_street"
+                  name="address_street"
+                  value={formData.address_street}
                   onChange={handleInputChange}
                   placeholder="123 rue de la Paix"
                 />
@@ -273,21 +274,21 @@ export function ContactForm({ contact, onSave, onClose }: ContactFormProps) {
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="city">Ville</Label>
+                  <Label htmlFor="address_city">Ville</Label>
                   <Input
-                    id="city"
-                    name="city"
-                    value={formData.city}
+                    id="address_city"
+                    name="address_city"
+                    value={formData.address_city}
                     onChange={handleInputChange}
                     placeholder="Paris"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="postal_code">Code postal</Label>
+                  <Label htmlFor="address_zip">Code postal</Label>
                   <Input
-                    id="postal_code"
-                    name="postal_code"
-                    value={formData.postal_code}
+                    id="address_zip"
+                    name="address_zip"
+                    value={formData.address_zip}
                     onChange={handleInputChange}
                     placeholder="75001"
                   />
@@ -295,11 +296,11 @@ export function ContactForm({ contact, onSave, onClose }: ContactFormProps) {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="country">Pays</Label>
+                <Label htmlFor="address_country">Pays</Label>
                 <select
-                  id="country"
-                  name="country"
-                  value={formData.country}
+                  id="address_country"
+                  name="address_country"
+                  value={formData.address_country}
                   onChange={handleInputChange}
                   className="w-full px-3 py-2 border rounded-md"
                 >
@@ -324,24 +325,27 @@ export function ContactForm({ contact, onSave, onClose }: ContactFormProps) {
             <CardContent className="space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="siret">N° SIRET</Label>
+                  <Label htmlFor="tax_id">N° SIRET / ID Fiscal</Label>
                   <Input
-                    id="siret"
-                    name="siret"
-                    value={formData.siret}
+                    id="tax_id"
+                    name="tax_id"
+                    value={formData.tax_id}
                     onChange={handleInputChange}
                     placeholder="123 456 789 00012"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="tva_number">N° TVA</Label>
-                  <Input
-                    id="tva_number"
-                    name="tva_number"
-                    value={formData.tva_number}
+                  <Label htmlFor="customer_type">Type de client</Label>
+                  <select
+                    id="customer_type"
+                    name="customer_type"
+                    value={formData.customer_type}
                     onChange={handleInputChange}
-                    placeholder="FR12345678901"
-                  />
+                    className="w-full px-3 py-2 border rounded-md"
+                  >
+                    <option value="individual">Particulier</option>
+                    <option value="company">Société</option>
+                  </select>
                 </div>
               </div>
 

@@ -130,7 +130,7 @@ router.get('/', authenticateToken, [
     }
 
     // Check for expired quotations
-    queryStr += ` AND (q.status != 'sent' OR q.validity_date >= CURRENT_DATE OR q.status = 'expired')`;
+    queryStr += ` AND (q.status != 'sent' OR q.expiration_date >= CURRENT_DATE OR q.status = 'expired')`;
 
     queryStr += ` GROUP BY q.id, c.id ORDER BY q.created_at DESC`;
 
@@ -163,7 +163,7 @@ router.get('/', authenticateToken, [
       `UPDATE quotations
        SET status = 'expired'
        WHERE status = 'sent'
-       AND validity_date < CURRENT_DATE`
+       AND expiration_date < CURRENT_DATE`
     );
 
     const response = {
@@ -205,25 +205,27 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
         c.company_name,
         c.email as contact_email,
         c.phone as contact_phone,
-        c.address as contact_address,
-        c.city as contact_city,
-        c.postal_code as contact_postal_code,
-        c.country as contact_country,
+        c.address_street as contact_address,
+        c.address_city as contact_city,
+        c.address_zip as contact_postal_code,
+        c.address_country as contact_country,
         json_agg(
-          DISTINCT jsonb_build_object(
+          jsonb_build_object(
             'id', ql.id,
-            'type', ql.type,
             'product_id', ql.product_id,
             'product_name', ql.product_name,
+            'product_sku', ql.product_sku,
             'description', ql.description,
             'quantity', ql.quantity,
             'unit_price', ql.unit_price,
-            'discount_type', ql.discount_type,
-            'discount_value', ql.discount_value,
+            'discount_percent', ql.discount_percent,
+            'discount_amount', ql.discount_amount,
             'tax_rate', ql.tax_rate,
+            'tax_amount', ql.tax_amount,
             'line_total', ql.line_total,
-            'notes', ql.notes
-          ) ORDER BY ql.display_order
+            'notes', ql.notes,
+            'is_optional', ql.is_optional
+          ) ORDER BY ql.line_number
         ) FILTER (WHERE ql.id IS NOT NULL) as line_items
       FROM quotations q
       LEFT JOIN contacts c ON q.contact_id = c.id
@@ -283,54 +285,62 @@ router.post('/', authenticateToken, [
       const quotation_number = await generateQuotationNumber();
 
       // Calculate validity date
-      const validity_date = new Date();
-      validity_date.setDate(validity_date.getDate() + validity_days);
+      const expiration_date = new Date();
+      expiration_date.setDate(expiration_date.getDate() + validity_days);
+
+      // Helper function to round to 2 decimals
+      const round = (num: number) => Math.round((num + Number.EPSILON) * 100) / 100;
 
       // Calculate totals
       let subtotal = 0;
       let total_tax = 0;
 
       for (const item of line_items) {
-        const line_subtotal = item.quantity * item.unit_price;
+        const line_subtotal = round(item.quantity * item.unit_price);
         let line_total = line_subtotal;
 
         // Apply line discount
         if (item.discount_type === 'percent') {
-          line_total -= (line_subtotal * item.discount_value / 100);
+          line_total = round(line_subtotal - (line_subtotal * item.discount_value / 100));
         } else if (item.discount_type === 'amount') {
-          line_total -= item.discount_value;
+          line_total = round(line_subtotal - item.discount_value);
         }
 
         // Calculate tax
-        const tax_amount = line_total * (item.tax_rate || 20) / 100;
+        const tax_amount = round(line_total * (item.tax_rate || 20) / 100);
         total_tax += tax_amount;
         subtotal += line_total;
 
         item.line_total = line_total;
       }
 
+      // Round accumulated totals
+      subtotal = round(subtotal);
+      total_tax = round(total_tax);
+
       // Apply global discount
       let discount_amount = 0;
       if (discount_type === 'percent') {
-        discount_amount = subtotal * discount_value / 100;
+        discount_amount = round(subtotal * discount_value / 100);
       } else {
-        discount_amount = discount_value;
+        discount_amount = round(discount_value || 0);
       }
 
-      const total_amount = subtotal - discount_amount + total_tax + shipping_cost;
+      const total_amount = round(subtotal - discount_amount + total_tax + (shipping_cost || 0));
 
       // Insert quotation
+      const discount_percent = discount_type === 'percent' ? discount_value : 0;
       const quotationResult = await client.query(
         `INSERT INTO quotations (
-          quotation_number, contact_id, status, validity_date,
-          subtotal, discount_type, discount_value, discount_amount,
+          quotation_number, contact_id, status, expiration_date,
+          subtotal, discount_percent, discount_amount,
           tax_amount, shipping_cost, total_amount, currency,
           notes, terms_conditions
-        ) VALUES ($1, $2, 'draft', $3, $4, $5, $6, $7, $8, $9, $10, 'EUR', $11, $12)
+        ) VALUES ($1, $2, 'draft', $3, $4, $5, $6, $7, $8, $9, 'EUR', $10, $11)
         RETURNING *`,
         [
-          quotation_number, contact_id, validity_date,
-          subtotal, discount_type, discount_value, discount_amount,
+          quotation_number, contact_id, expiration_date,
+          subtotal, discount_percent, discount_amount,
           total_tax, shipping_cost, total_amount,
           notes, terms_conditions
         ]
@@ -341,23 +351,27 @@ router.post('/', authenticateToken, [
       // Insert line items
       for (let i = 0; i < line_items.length; i++) {
         const item = line_items[i];
+        const line_discount_percent = item.discount_percent || 0;
+        const line_discount_amount = item.discount_amount || 0;
+
         await client.query(
           `INSERT INTO quotation_lines (
-            quotation_id, type, product_id, product_name, description,
-            quantity, unit_price, discount_type, discount_value,
-            tax_rate, line_total, notes, display_order
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+            quotation_id, product_id, product_name, product_sku, description,
+            quantity, unit_price, discount_percent, discount_amount,
+            tax_rate, tax_amount, line_total, notes, line_number
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
           [
             quotation.id,
-            item.product_id ? 'catalog' : 'custom',
             item.product_id || null,
             item.product_name,
+            item.product_sku || '',
             item.description || '',
             item.quantity,
             item.unit_price,
-            item.discount_type || null,
-            item.discount_value || 0,
+            line_discount_percent,
+            line_discount_amount,
             item.tax_rate || 20,
+            item.tax_amount || 0,
             item.line_total,
             item.notes || null,
             i + 1
@@ -375,6 +389,161 @@ router.post('/', authenticateToken, [
   } catch (error) {
     logger.error('Error creating quotation:', error);
     res.status(500).json({ error: 'Failed to create quotation' });
+  }
+});
+
+// UPDATE quotation
+router.put('/:id', authenticateToken, [
+  body('contact_id').isUUID().withMessage('Valid contact ID is required'),
+  body('line_items').isArray({ min: 1 }).withMessage('At least one line item is required')
+], async (req: Request, res: Response) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { id } = req.params;
+    const {
+      contact_id,
+      expiration_date,
+      delivery_date,
+      delivery_address,
+      payment_terms,
+      delivery_terms,
+      shipping_method,
+      installation_included,
+      line_items,
+      discount_type = 'percent',
+      discount_value = 0,
+      shipping_cost = 0,
+      installation_cost = 0,
+      notes = '',
+      internal_notes = '',
+      terms_conditions = ''
+    } = req.body;
+
+    const result = await db.transaction(async (client) => {
+      // Check if quotation exists
+      const checkResult = await client.query('SELECT id, status FROM quotations WHERE id = $1', [id]);
+      if (checkResult.rows.length === 0) {
+        throw new Error('Quotation not found');
+      }
+
+      // Helper function to round to 2 decimals
+      const round = (num: number) => Math.round((num + Number.EPSILON) * 100) / 100;
+
+      // Calculate totals
+      let subtotal = 0;
+      let total_tax = 0;
+
+      for (const item of line_items) {
+        const base_total = round(item.quantity * item.unit_price);
+        const line_discount_amount = round(base_total * (item.discount_percent || 0) / 100);
+        const line_subtotal = round(base_total - line_discount_amount);
+        const tax_amount = round(line_subtotal * (item.tax_rate || 20) / 100);
+        const line_total = round(line_subtotal + tax_amount);
+
+        total_tax += tax_amount;
+        subtotal += line_subtotal;
+
+        item.discount_amount = line_discount_amount;
+        item.tax_amount = tax_amount;
+        item.line_total = line_total;
+      }
+
+      // Round accumulated totals
+      subtotal = round(subtotal);
+      total_tax = round(total_tax);
+
+      // Apply global discount
+      let discount_amount = 0;
+      if (discount_type === 'percent') {
+        discount_amount = round(subtotal * discount_value / 100);
+      } else {
+        discount_amount = round(discount_value || 0);
+      }
+
+      const total_amount = round(subtotal - discount_amount + total_tax + (shipping_cost || 0));
+
+      // Update quotation
+      const discount_percent = discount_type === 'percent' ? discount_value : 0;
+      const quotationResult = await client.query(
+        `UPDATE quotations SET
+          contact_id = $1,
+          expiration_date = $2,
+          delivery_date = $3,
+          delivery_address = $4,
+          payment_terms = $5,
+          delivery_terms = $6,
+          shipping_method = $7,
+          installation_included = $8,
+          subtotal = $9,
+          discount_percent = $10,
+          discount_amount = $11,
+          tax_amount = $12,
+          shipping_cost = $13,
+          installation_cost = $14,
+          total_amount = $15,
+          notes = $16,
+          internal_notes = $17,
+          terms_conditions = $18,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = $19
+        RETURNING *`,
+        [
+          contact_id, expiration_date, delivery_date, delivery_address,
+          payment_terms, delivery_terms, shipping_method, installation_included,
+          subtotal, discount_percent, discount_amount,
+          total_tax, shipping_cost, installation_cost, total_amount,
+          notes, internal_notes, terms_conditions, id
+        ]
+      );
+
+      const quotation = quotationResult.rows[0];
+
+      // Delete existing line items
+      await client.query('DELETE FROM quotation_lines WHERE quotation_id = $1', [id]);
+
+      // Insert updated line items
+      for (let i = 0; i < line_items.length; i++) {
+        const item = line_items[i];
+        await client.query(
+          `INSERT INTO quotation_lines (
+            quotation_id, product_id, product_name, product_sku, description,
+            quantity, unit_price, discount_percent, discount_amount,
+            tax_rate, tax_amount, line_total, notes, line_number
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+          [
+            quotation.id,
+            item.product_id || null,
+            item.product_name,
+            item.product_sku || '',
+            item.description || '',
+            item.quantity,
+            item.unit_price,
+            item.discount_percent || 0,
+            item.discount_amount || 0,
+            item.tax_rate || 20,
+            item.tax_amount || 0,
+            item.line_total,
+            item.notes || null,
+            i + 1
+          ]
+        );
+      }
+
+      return quotation;
+    });
+
+    // Clear cache
+    await clearQuotationCache();
+    await redisClient.del(`${CACHE_KEYS.QUOTATION_PREFIX}${id}`);
+
+    res.json(result);
+  } catch (error: any) {
+    logger.error('Error updating quotation:', error);
+    res.status(500).json({ error: error.message || 'Failed to update quotation' });
   }
 });
 
@@ -435,20 +604,20 @@ router.post('/:id/duplicate', authenticateToken, async (req: Request, res: Respo
       const quotation_number = await generateQuotationNumber();
 
       // Calculate new validity date
-      const validity_date = new Date();
-      validity_date.setDate(validity_date.getDate() + 30);
+      const expiration_date = new Date();
+      expiration_date.setDate(expiration_date.getDate() + 30);
 
       // Insert duplicate quotation
       const quotationResult = await client.query(
         `INSERT INTO quotations (
-          quotation_number, contact_id, status, validity_date,
+          quotation_number, contact_id, status, expiration_date,
           subtotal, discount_type, discount_value, discount_amount,
           tax_amount, shipping_cost, total_amount, currency,
           notes, terms_conditions
         ) VALUES ($1, $2, 'draft', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
         RETURNING *`,
         [
-          quotation_number, original.contact_id, validity_date,
+          quotation_number, original.contact_id, expiration_date,
           original.subtotal, original.discount_type, original.discount_value,
           original.discount_amount, original.tax_amount, original.shipping_cost,
           original.total_amount, original.currency,

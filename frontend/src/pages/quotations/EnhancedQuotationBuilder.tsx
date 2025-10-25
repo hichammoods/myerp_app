@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -9,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Switch } from '@/components/ui/switch'
 import { toast } from 'react-hot-toast'
+import { contactsApi, productsApi } from '@/services/api'
 import {
   FileText,
   User,
@@ -61,28 +63,20 @@ interface MaterialOption {
 
 interface LineItem {
   id: string
-  type: 'catalog' | 'custom'
   product_id?: string
   product_name: string
   product_sku?: string
   description: string
   quantity: number
   unit_price: number
-  base_price: number
-  materials?: MaterialOption[]
-  selectedMaterials?: string[]
-  discount_type: 'percent' | 'amount'
-  discount_value: number
+  discount_percent: number
   discount_amount: number
   tax_rate: number
   tax_amount: number
-  subtotal: number
-  total: number
-  stock_quantity?: number
-  lead_time?: number
-  image_url?: string
+  line_total: number
+  cost_price?: number
   notes?: string
-  is_customizable?: boolean
+  is_optional?: boolean
 }
 
 interface Section {
@@ -92,78 +86,21 @@ interface Section {
   collapsed: boolean
 }
 
-// Mock products with materials and stock info
-const mockProducts = [
-  {
-    id: '1',
-    name: 'Canapé 3 places Confort',
-    sku: 'CNP-001',
-    price: 1500,
-    stock_quantity: 5,
-    lead_time: 14,
-    is_customizable: true,
-    allows_custom_materials: true,
-    image_url: '/images/canape.jpg',
-    materials: [
-      {
-        partName: 'Structure',
-        materialId: 'mat-1',
-        materialName: 'Bois de hêtre',
-        finishId: 'fin-1',
-        finishName: 'Vernis naturel',
-        extraCost: 0
-      },
-      {
-        partName: 'Assise',
-        materialId: 'mat-2',
-        materialName: 'Tissu coton',
-        finishId: 'fin-2',
-        finishName: 'Traitement anti-taches',
-        extraCost: 50
-      }
-    ]
-  },
-  {
-    id: '2',
-    name: 'Table à manger extensible',
-    sku: 'TAB-002',
-    price: 1200,
-    stock_quantity: 0,
-    lead_time: 21,
-    is_customizable: true,
-    allows_custom_materials: true,
-    image_url: '/images/table.jpg',
-    materials: []
-  }
-]
-
-// Mock contacts with full details
-const mockContacts = [
-  {
-    id: '1',
-    type: 'company',
-    name: 'Meubles Modernes SARL',
-    email: 'contact@meublesmodernes.fr',
-    phone: '+33 1 23 45 67 89',
-    address: '123 Rue du Commerce, 75001 Paris',
-    tax_id: 'FR12345678901',
-    payment_terms: '30',
-    discount_rate: 10
-  },
-  {
-    id: '2',
-    type: 'individual',
-    name: 'Marie Dupont',
-    email: 'marie.dupont@gmail.com',
-    phone: '+33 6 12 34 56 78',
-    address: '45 Avenue Victor Hugo, 69002 Lyon',
-    tax_id: '',
-    payment_terms: 'immediate',
-    discount_rate: 0
-  }
-]
-
 export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: QuotationBuilderProps) {
+  // Fetch contacts from API
+  const { data: contactsData, isLoading: contactsLoading } = useQuery({
+    queryKey: ['contacts'],
+    queryFn: () => contactsApi.getAll({ limit: 100 })
+  })
+
+  // Fetch products from API
+  const { data: productsData, isLoading: productsLoading } = useQuery({
+    queryKey: ['products'],
+    queryFn: () => productsApi.getAll({ limit: 100 })
+  })
+
+  const contacts = contactsData?.contacts || []
+  const products = productsData || []
   const [formData, setFormData] = useState({
     quotation_number: quotation?.quotation_number || generateQuotationNumber(),
     date: quotation?.date || new Date().toISOString().split('T')[0],
@@ -239,6 +176,89 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
 • Tout devis signé vaut bon de commande`
   }
 
+  // Initialize sections from quotation line_items when editing
+  useEffect(() => {
+    if (quotation?.line_items && Array.isArray(quotation.line_items) && quotation.line_items.length > 0) {
+      // Transform flat line_items into sections structure
+      const items = quotation.line_items.map((item: any) => ({
+        id: item.id || Date.now().toString() + Math.random(),
+        product_id: item.product_id,
+        product_name: item.product_name,
+        product_sku: item.product_sku || '',
+        description: item.description || '',
+        quantity: parseFloat(item.quantity) || 1,
+        unit_price: parseFloat(item.unit_price) || 0,
+        discount_percent: parseFloat(item.discount_percent) || 0,
+        discount_amount: parseFloat(item.discount_amount) || 0,
+        tax_rate: parseFloat(item.tax_rate) || 20,
+        tax_amount: parseFloat(item.tax_amount) || 0,
+        line_total: parseFloat(item.line_total) || 0,
+        cost_price: parseFloat(item.cost_price) || 0,
+        notes: item.notes || '',
+        is_optional: item.is_optional || false
+      }))
+
+      setSections([{
+        id: '1',
+        title: 'Mobilier',
+        items: items,
+        collapsed: false
+      }])
+    }
+  }, [quotation])
+
+  // Update formData when quotation prop changes (when editing existing quotation)
+  useEffect(() => {
+    if (quotation && contacts.length > 0) {
+      // Find the contact from the contacts list to populate contact_details
+      const contact = contacts.find((c: any) => c.id === quotation.contact_id)
+
+      let contactDetails = null
+      if (contact) {
+        const contactName = contact.company_name || `${contact.first_name || ''} ${contact.last_name || ''}`.trim()
+        const contactAddress = [
+          contact.address_street,
+          contact.address_city,
+          contact.address_zip
+        ].filter(Boolean).join(', ')
+
+        contactDetails = {
+          name: contactName,
+          email: contact.email,
+          phone: contact.phone || contact.mobile,
+          address: contactAddress,
+          tax_id: contact.tax_id || '',
+          payment_terms: contact.payment_terms?.toString() || '30',
+          discount_rate: contact.discount_rate || 0,
+          type: contact.customer_type || 'individual'
+        }
+      }
+
+      setFormData({
+        quotation_number: quotation.quotation_number || generateQuotationNumber(),
+        date: quotation.created_at ? quotation.created_at.split('T')[0] : new Date().toISOString().split('T')[0],
+        validity_date: quotation.expiration_date || getDefaultValidityDate(),
+        contact_id: quotation.contact_id || '',
+        contact_name: quotation.contact_name || '',
+        contact_details: contactDetails,
+        status: quotation.status || 'draft',
+        payment_terms: quotation.payment_terms || '30',
+        delivery_time: quotation.delivery_terms || '2-4 semaines',
+        delivery_address: quotation.delivery_address || '',
+        installation_included: quotation.installation_included || quotation.shipping_method === 'installation' || false,
+        notes: quotation.notes || '',
+        internal_notes: quotation.internal_notes || '',
+        terms_conditions: quotation.terms_conditions || getDefaultTerms(),
+        global_discount_type: quotation.discount_percent > 0 ? 'percent' : 'percent',
+        global_discount_value: quotation.discount_percent || 0,
+        shipping_cost: quotation.shipping_cost || 0,
+        installation_cost: quotation.installation_cost || 0,
+        tax_rate: quotation.tax_rate || 20,
+        include_tax: quotation.include_tax ?? true
+      })
+    }
+  }, [quotation, contacts])
+
   useEffect(() => {
     calculateTotals()
   }, [sections, formData.global_discount_type, formData.global_discount_value,
@@ -249,7 +269,7 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
 
     sections.forEach(section => {
       section.items.forEach(item => {
-        items_subtotal += item.subtotal
+        items_subtotal += item.line_total || 0
       })
     })
 
@@ -282,35 +302,23 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
   }
 
   const handleAddProduct = (product: any, customOptions?: any) => {
+    const unitPrice = parseFloat(product.basePrice || product.unit_price) || 0
     const newItem: LineItem = {
       id: Date.now().toString(),
-      type: 'catalog',
       product_id: product.id,
       product_name: product.name,
-      product_sku: product.sku,
+      product_sku: product.sku || '',
       description: product.description || '',
       quantity: 1,
-      base_price: product.price,
-      unit_price: product.price,
-      materials: product.materials || [],
-      selectedMaterials: [],
-      discount_type: 'percent',
-      discount_value: 0,
+      unit_price: unitPrice,
+      discount_percent: formData.contact_details?.discount_rate || 0,
       discount_amount: 0,
-      tax_rate: formData.tax_rate,
+      tax_rate: product.taxRate || product.tax_rate || 20,
       tax_amount: 0,
-      subtotal: product.price,
-      total: product.price,
-      stock_quantity: product.stock_quantity,
-      lead_time: product.lead_time,
-      image_url: product.image_url,
-      is_customizable: product.is_customizable
-    }
-
-    // Apply contact discount if exists
-    if (formData.contact_details?.discount_rate) {
-      newItem.discount_type = 'percent'
-      newItem.discount_value = formData.contact_details.discount_rate
+      line_total: unitPrice,
+      cost_price: product.costPrice || product.cost_price || 0,
+      notes: '',
+      is_optional: false
     }
 
     // Recalculate item totals
@@ -327,22 +335,21 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
   }
 
   const handleAddCustomProduct = (data: any) => {
+    const unitPrice = parseFloat(data.price) || 0
     const newItem: LineItem = {
       id: Date.now().toString(),
-      type: 'custom',
       product_name: data.name,
-      description: data.description,
+      product_sku: '',
+      description: data.description || '',
       quantity: data.quantity || 1,
-      base_price: data.price,
-      unit_price: data.price,
-      discount_type: 'percent',
-      discount_value: 0,
+      unit_price: unitPrice,
+      discount_percent: 0,
       discount_amount: 0,
-      tax_rate: formData.tax_rate,
+      tax_rate: 20,
       tax_amount: 0,
-      subtotal: data.price * (data.quantity || 1),
-      total: data.price * (data.quantity || 1),
-      notes: data.notes
+      line_total: unitPrice * (data.quantity || 1),
+      notes: data.notes || '',
+      is_optional: false
     }
 
     recalculateLineItem(newItem)
@@ -357,25 +364,21 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
   }
 
   const recalculateLineItem = (item: LineItem) => {
-    const baseTotal = item.quantity * item.unit_price
+    const quantity = parseFloat(item.quantity as any) || 0
+    const unitPrice = parseFloat(item.unit_price as any) || 0
+    const discountPercent = parseFloat(item.discount_percent as any) || 0
+    const taxRate = parseFloat(item.tax_rate as any) || 0
 
-    // Calculate discount
-    if (item.discount_type === 'percent') {
-      item.discount_amount = baseTotal * (item.discount_value / 100)
-    } else {
-      item.discount_amount = item.discount_value
-    }
+    const baseTotal = quantity * unitPrice
 
-    item.subtotal = baseTotal - item.discount_amount
+    // Calculate discount amount from percentage
+    item.discount_amount = baseTotal * (discountPercent / 100)
+
+    const subtotal = baseTotal - item.discount_amount
 
     // Calculate tax
-    if (formData.include_tax) {
-      item.tax_amount = item.subtotal * (item.tax_rate / 100)
-      item.total = item.subtotal + item.tax_amount
-    } else {
-      item.tax_amount = 0
-      item.total = item.subtotal
-    }
+    item.tax_amount = subtotal * (taxRate / 100)
+    item.line_total = subtotal + item.tax_amount
   }
 
   const handleUpdateLineItem = (sectionId: string, itemId: string, field: string, value: any) => {
@@ -431,26 +434,41 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
   }
 
   const handleContactChange = (contactId: string) => {
-    const contact = mockContacts.find(c => c.id === contactId)
+    const contact = contacts.find((c: any) => c.id === contactId)
     if (contact) {
+      const contactName = contact.company_name || `${contact.first_name || ''} ${contact.last_name || ''}`.trim()
+      const contactAddress = [
+        contact.address_street,
+        contact.address_city,
+        contact.address_zip
+      ].filter(Boolean).join(', ')
+
       setFormData({
         ...formData,
         contact_id: contactId,
-        contact_name: contact.name,
-        contact_details: contact,
-        payment_terms: contact.payment_terms,
-        delivery_address: contact.address
+        contact_name: contactName,
+        contact_details: {
+          name: contactName,
+          email: contact.email,
+          phone: contact.phone || contact.mobile,
+          address: contactAddress,
+          tax_id: contact.tax_id || '',
+          payment_terms: contact.payment_terms?.toString() || '30',
+          discount_rate: contact.discount_rate || 0,
+          type: contact.customer_type || 'individual'
+        },
+        payment_terms: contact.payment_terms?.toString() || '30',
+        delivery_address: contactAddress
       })
 
       // Apply contact discount to all items
-      if (contact.discount_rate > 0) {
+      if (contact.discount_rate && contact.discount_rate > 0) {
         setSections(sections.map(section => ({
           ...section,
           items: section.items.map(item => {
             const updatedItem = {
               ...item,
-              discount_type: 'percent' as const,
-              discount_value: contact.discount_rate
+              discount_percent: contact.discount_rate
             }
             recalculateLineItem(updatedItem)
             return updatedItem
@@ -474,15 +492,52 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
       return
     }
 
+    // Transform frontend data structure to match backend API expectations
+    // Flatten sections into line_items array
+    const line_items = sections.flatMap(section =>
+      section.items.map(item => ({
+        product_id: item.product_id || null,
+        product_name: item.product_name,
+        product_sku: item.product_sku || '',
+        description: item.description || '',
+        quantity: parseFloat(item.quantity) || 0,
+        unit_price: parseFloat(item.unit_price) || 0,
+        discount_percent: parseFloat(item.discount_percent) || 0,
+        discount_amount: parseFloat(item.discount_amount) || 0,
+        tax_rate: parseFloat(item.tax_rate) || 0,
+        tax_amount: parseFloat(item.tax_amount) || 0,
+        line_total: parseFloat(item.line_total) || 0,
+        notes: item.notes || null
+      }))
+    )
+
+    // Calculate validity_days from validity_date
+    const validityDate = new Date(formData.validity_date)
+    const today = new Date()
+    const validity_days = Math.ceil((validityDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+
+    // Build API payload matching backend schema
     const quotationData = {
-      ...formData,
-      sections,
-      totals
+      contact_id: formData.contact_id,
+      expiration_date: formData.validity_date,
+      delivery_date: null, // Future: can add actual delivery date picker
+      delivery_address: formData.delivery_address,
+      payment_terms: formData.payment_terms,
+      delivery_terms: formData.delivery_time, // "2-4 semaines" text
+      shipping_method: formData.installation_included ? 'installation' : 'standard',
+      installation_included: formData.installation_included,
+      validity_days: validity_days > 0 ? validity_days : 30,
+      line_items,
+      discount_type: formData.global_discount_type,
+      discount_value: formData.global_discount_value,
+      shipping_cost: formData.shipping_cost,
+      installation_cost: formData.installation_cost,
+      notes: formData.notes,
+      internal_notes: formData.internal_notes,
+      terms_conditions: formData.terms_conditions
     }
 
     onSave(quotationData)
-    toast.success('Devis enregistré avec succès')
-    onClose()
   }
 
   const formatCurrency = (amount: number) => {
@@ -492,9 +547,9 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
     }).format(amount)
   }
 
-  const filteredProducts = mockProducts.filter(p =>
-    p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    p.sku.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredProducts = products.filter((p: any) =>
+    p.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    p.sku?.toLowerCase().includes(searchQuery.toLowerCase())
   )
 
   return (
@@ -517,7 +572,7 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
         </div>
       </div>
 
-      <Tabs defaultValue="items" className="w-full">
+      <Tabs defaultValue="client" className="w-full">
         <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="client">
             <User className="mr-2 h-4 w-4" />
@@ -554,50 +609,103 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
                     <SelectValue placeholder="Sélectionner un client" />
                   </SelectTrigger>
                   <SelectContent>
-                    {mockContacts.map(contact => (
-                      <SelectItem key={contact.id} value={contact.id}>
-                        <div className="flex items-center gap-2">
-                          {contact.type === 'company' ?
-                            <Building2 className="h-4 w-4" /> :
-                            <User className="h-4 w-4" />
-                          }
-                          <span>{contact.name}</span>
-                          <span className="text-muted-foreground">- {contact.email}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
+                    {contactsLoading ? (
+                      <div className="p-2 text-sm text-gray-500">Chargement...</div>
+                    ) : (
+                      contacts.map((contact: any) => {
+                        const displayName = contact.company_name || `${contact.first_name || ''} ${contact.last_name || ''}`.trim()
+                        return (
+                          <SelectItem key={contact.id} value={contact.id}>
+                            <div className="flex items-center gap-2">
+                              {contact.customer_type === 'company' ?
+                                <Building2 className="h-4 w-4" /> :
+                                <User className="h-4 w-4" />
+                              }
+                              <span>{displayName}</span>
+                              <span className="text-muted-foreground">- {contact.email}</span>
+                            </div>
+                          </SelectItem>
+                        )
+                      })
+                    )}
                   </SelectContent>
                 </Select>
               </div>
 
               {formData.contact_details && (
-                <Card className="bg-gray-50">
-                  <CardContent className="pt-6">
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="flex items-center gap-2">
-                        <Mail className="h-4 w-4 text-gray-500" />
-                        <span className="text-sm">{formData.contact_details.email}</span>
+                <Card className="bg-blue-50 border-blue-200">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Info className="h-4 w-4 text-blue-600" />
+                      Détails du contact
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="flex items-start gap-2">
+                        <User className="h-4 w-4 text-gray-600 mt-0.5 flex-shrink-0" />
+                        <div className="flex flex-col">
+                          <span className="text-xs text-gray-500">Nom</span>
+                          <span className="text-sm font-medium">{formData.contact_details.name}</span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Phone className="h-4 w-4 text-gray-500" />
-                        <span className="text-sm">{formData.contact_details.phone}</span>
+                      <div className="flex items-start gap-2">
+                        <Mail className="h-4 w-4 text-gray-600 mt-0.5 flex-shrink-0" />
+                        <div className="flex flex-col">
+                          <span className="text-xs text-gray-500">Email</span>
+                          <span className="text-sm font-medium">{formData.contact_details.email}</span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2 md:col-span-2">
-                        <MapPin className="h-4 w-4 text-gray-500" />
-                        <span className="text-sm">{formData.contact_details.address}</span>
+                      <div className="flex items-start gap-2">
+                        <Phone className="h-4 w-4 text-gray-600 mt-0.5 flex-shrink-0" />
+                        <div className="flex flex-col">
+                          <span className="text-xs text-gray-500">Téléphone</span>
+                          <span className="text-sm font-medium">{formData.contact_details.phone || 'Non renseigné'}</span>
+                        </div>
                       </div>
-                      {formData.contact_details.tax_id && (
-                        <div className="flex items-center gap-2">
-                          <CreditCard className="h-4 w-4 text-gray-500" />
-                          <span className="text-sm">TVA: {formData.contact_details.tax_id}</span>
+                      {formData.contact_details.type && (
+                        <div className="flex items-start gap-2">
+                          <Building2 className="h-4 w-4 text-gray-600 mt-0.5 flex-shrink-0" />
+                          <div className="flex flex-col">
+                            <span className="text-xs text-gray-500">Type</span>
+                            <span className="text-sm font-medium capitalize">
+                              {formData.contact_details.type === 'company' ? 'Entreprise' : 'Particulier'}
+                            </span>
+                          </div>
                         </div>
                       )}
+                      <div className="flex items-start gap-2 md:col-span-2">
+                        <MapPin className="h-4 w-4 text-gray-600 mt-0.5 flex-shrink-0" />
+                        <div className="flex flex-col">
+                          <span className="text-xs text-gray-500">Adresse</span>
+                          <span className="text-sm font-medium">{formData.contact_details.address || 'Non renseignée'}</span>
+                        </div>
+                      </div>
+                      {formData.contact_details.tax_id && (
+                        <div className="flex items-start gap-2">
+                          <CreditCard className="h-4 w-4 text-gray-600 mt-0.5 flex-shrink-0" />
+                          <div className="flex flex-col">
+                            <span className="text-xs text-gray-500">N° TVA</span>
+                            <span className="text-sm font-medium">{formData.contact_details.tax_id}</span>
+                          </div>
+                        </div>
+                      )}
+                      <div className="flex items-start gap-2">
+                        <CreditCard className="h-4 w-4 text-gray-600 mt-0.5 flex-shrink-0" />
+                        <div className="flex flex-col">
+                          <span className="text-xs text-gray-500">Conditions de paiement</span>
+                          <span className="text-sm font-medium">{formData.contact_details.payment_terms} jours</span>
+                        </div>
+                      </div>
                       {formData.contact_details.discount_rate > 0 && (
-                        <div className="flex items-center gap-2">
-                          <Percent className="h-4 w-4 text-green-500" />
-                          <span className="text-sm text-green-600 font-medium">
-                            Remise client: {formData.contact_details.discount_rate}%
-                          </span>
+                        <div className="flex items-start gap-2 md:col-span-2">
+                          <Percent className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
+                          <div className="flex flex-col">
+                            <span className="text-xs text-gray-500">Remise client</span>
+                            <span className="text-sm font-semibold text-green-600">
+                              {formData.contact_details.discount_rate}% appliqué automatiquement
+                            </span>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -826,38 +934,21 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
                                     />
                                   </div>
                                   <div>
-                                    <Label className="text-xs">Remise</Label>
-                                    <div className="flex gap-1">
-                                      <Input
-                                        type="number"
-                                        step="0.01"
-                                        value={item.discount_value}
-                                        onChange={(e) => handleUpdateLineItem(
-                                          section.id,
-                                          item.id,
-                                          'discount_value',
-                                          parseFloat(e.target.value) || 0
-                                        )}
-                                        className="h-8"
-                                      />
-                                      <Select
-                                        value={item.discount_type}
-                                        onValueChange={(value) => handleUpdateLineItem(
-                                          section.id,
-                                          item.id,
-                                          'discount_type',
-                                          value
-                                        )}
-                                      >
-                                        <SelectTrigger className="h-8 w-16">
-                                          <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          <SelectItem value="percent">%</SelectItem>
-                                          <SelectItem value="amount">€</SelectItem>
-                                        </SelectContent>
-                                      </Select>
-                                    </div>
+                                    <Label className="text-xs">Remise (%)</Label>
+                                    <Input
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      max="100"
+                                      value={item.discount_percent}
+                                      onChange={(e) => handleUpdateLineItem(
+                                        section.id,
+                                        item.id,
+                                        'discount_percent',
+                                        parseFloat(e.target.value) || 0
+                                      )}
+                                      className="h-8"
+                                    />
                                   </div>
                                   <div>
                                     <Label className="text-xs">TVA (%)</Label>
@@ -877,7 +968,7 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
                                   <div>
                                     <Label className="text-xs">Total</Label>
                                     <div className="h-8 px-3 py-1 border rounded-md bg-gray-50 font-semibold">
-                                      {formatCurrency(item.total)}
+                                      {formatCurrency(item.line_total)}
                                     </div>
                                   </div>
                                 </div>
@@ -1206,39 +1297,53 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
                 </div>
 
                 <div className="grid gap-3 max-h-[400px] overflow-y-auto">
-                  {filteredProducts.map((product) => (
-                    <Card
-                      key={product.id}
-                      className="cursor-pointer hover:shadow-md transition-shadow"
-                      onClick={() => handleAddProduct(product)}
-                    >
-                      <CardContent className="p-4">
-                        <div className="flex justify-between items-start">
-                          <div className="flex gap-3">
-                            <div className="w-16 h-16 bg-gray-100 rounded flex items-center justify-center">
-                              <Image className="h-8 w-8 text-gray-400" />
-                            </div>
-                            <div>
-                              <h4 className="font-semibold">{product.name}</h4>
-                              <p className="text-sm text-gray-500">SKU: {product.sku}</p>
-                              <div className="flex items-center gap-4 mt-2">
-                                <span className="font-medium">{formatCurrency(product.price)}</span>
-                                {product.stock_quantity > 0 ? (
-                                  <Badge variant="success">En stock ({product.stock_quantity})</Badge>
+                  {productsLoading ? (
+                    <div className="text-center py-8 text-gray-500">
+                      Chargement des produits...
+                    </div>
+                  ) : filteredProducts.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500">
+                      Aucun produit trouvé
+                    </div>
+                  ) : (
+                    filteredProducts.map((product: any) => (
+                      <Card
+                        key={product.id}
+                        className="cursor-pointer hover:shadow-md transition-shadow"
+                        onClick={() => handleAddProduct(product)}
+                      >
+                        <CardContent className="p-4">
+                          <div className="flex justify-between items-start">
+                            <div className="flex gap-3">
+                              <div className="w-16 h-16 bg-gray-100 rounded flex items-center justify-center">
+                                {product.image_url ? (
+                                  <img src={product.image_url} alt={product.name} className="w-full h-full object-cover rounded" />
                                 ) : (
-                                  <Badge variant="warning">Sur commande</Badge>
+                                  <Image className="h-8 w-8 text-gray-400" />
                                 )}
                               </div>
+                              <div>
+                                <h4 className="font-semibold">{product.name}</h4>
+                                <p className="text-sm text-gray-500">SKU: {product.sku}</p>
+                                <div className="flex items-center gap-4 mt-2">
+                                  <span className="font-medium">{formatCurrency(parseFloat(product.basePrice || product.unit_price || 0))}</span>
+                                  {(product.stock_quantity || 0) > 0 ? (
+                                    <Badge variant="success">En stock ({product.stock_quantity})</Badge>
+                                  ) : (
+                                    <Badge variant="warning">Sur commande</Badge>
+                                  )}
+                                </div>
+                              </div>
                             </div>
+                            <Button size="sm" type="button">
+                              <Plus className="h-4 w-4 mr-1" />
+                              Ajouter
+                            </Button>
                           </div>
-                          <Button size="sm">
-                            <Plus className="h-4 w-4 mr-1" />
-                            Ajouter
-                          </Button>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
+                        </CardContent>
+                      </Card>
+                    ))
+                  )}
                 </div>
               </div>
             </TabsContent>

@@ -48,8 +48,8 @@ router.post('/register', [
     const result = await db.query(
       `INSERT INTO users (
         email, password_hash, first_name, last_name, phone,
-        role, status, email_verified
-      ) VALUES ($1, $2, $3, $4, $5, 'user', 'active', false)
+        role, is_active, email_verified
+      ) VALUES ($1, $2, $3, $4, $5, 'sales', true, false)
       RETURNING id, email, first_name, last_name, role`,
       [email, hashedPassword, first_name, last_name, phone]
     );
@@ -99,7 +99,7 @@ router.post('/login', [
 
     // Get user
     const result = await db.query(
-      `SELECT id, email, password_hash, first_name, last_name, role, status
+      `SELECT id, email, password_hash, first_name, last_name, role, is_active
        FROM users WHERE email = $1`,
       [email]
     );
@@ -111,19 +111,19 @@ router.post('/login', [
     const user = result.rows[0];
 
     // Check if user is active
-    if (user.status !== 'active') {
+    if (!user.is_active) {
       return res.status(403).json({ error: 'Account is not active' });
     }
 
     // Verify password
     const isValid = await comparePassword(password, user.password_hash);
     if (!isValid) {
-      // Log failed attempt
-      await db.query(
-        `INSERT INTO login_attempts (user_id, ip_address, success)
-         VALUES ($1, $2, false)`,
-        [user.id, req.ip]
-      );
+      // Log failed attempt (table doesn't exist yet)
+      // await db.query(
+      //   `INSERT INTO login_attempts (user_id, ip_address, success)
+      //    VALUES ($1, $2, false)`,
+      //   [user.id, req.ip]
+      // );
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
@@ -133,12 +133,12 @@ router.post('/login', [
       [user.id]
     );
 
-    // Log successful login
-    await db.query(
-      `INSERT INTO login_attempts (user_id, ip_address, success)
-       VALUES ($1, $2, true)`,
-      [user.id, req.ip]
-    );
+    // Log successful login (table doesn't exist yet)
+    // await db.query(
+    //   `INSERT INTO login_attempts (user_id, ip_address, success)
+    //    VALUES ($1, $2, true)`,
+    //   [user.id, req.ip]
+    // );
 
     // Clear old sessions if needed
     await clearUserSessions(user.id);
@@ -274,8 +274,8 @@ router.post('/forgot-password', [
 
     // Check if user exists
     const result = await db.query(
-      'SELECT id, first_name FROM users WHERE email = $1 AND status = $2',
-      [email, 'active']
+      'SELECT id, first_name FROM users WHERE email = $1 AND is_active = $2',
+      [email, true]
     );
 
     // Always return success to prevent email enumeration

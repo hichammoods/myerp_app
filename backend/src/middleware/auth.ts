@@ -21,8 +21,8 @@ declare global {
 
 // JWT configuration
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
-const JWT_EXPIRY = process.env.JWT_EXPIRY || '24h';
-const REFRESH_TOKEN_EXPIRY = process.env.REFRESH_TOKEN_EXPIRY || '7d';
+const JWT_EXPIRY = process.env.JWT_EXPIRY || '365d'; // Token valid for 1 year (only logout will invalidate)
+const REFRESH_TOKEN_EXPIRY = process.env.REFRESH_TOKEN_EXPIRY || '365d';
 
 // Token blacklist in Redis
 const BLACKLIST_PREFIX = 'blacklist:token:';

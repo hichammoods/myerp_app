@@ -16,6 +16,8 @@ import contactRouter from './routes/contacts';
 // import productRouter from './routes/products';
 import productRouter from './routes/products-simple'; // Using simplified version without pooling
 import quotationRouter from './routes/quotations';
+import settingsRouter from './routes/settings';
+import inventoryRouter from './routes/inventory.routes';
 import testRouter from './routes/test-simple'; // Ultra-simple test routes
 
 export class App {
@@ -81,6 +83,8 @@ export class App {
     this.express.use('/api/contacts', contactRouter);
     this.express.use('/api/products', productRouter);
     this.express.use('/api/quotations', quotationRouter);
+    this.express.use('/api/settings', settingsRouter);
+    this.express.use('/api/inventory', inventoryRouter);
 
     // API documentation (only in development)
     if (process.env.NODE_ENV === 'development') {
@@ -93,7 +97,8 @@ export class App {
             auth: '/api/auth/*',
             contacts: '/api/contacts/*',
             products: '/api/products/*',
-            quotations: '/api/quotations/*'
+            quotations: '/api/quotations/*',
+            settings: '/api/settings/*'
           }
         });
       });

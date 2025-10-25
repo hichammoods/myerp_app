@@ -565,7 +565,7 @@ router.get('/', async (req: Request, res: Response) => {
       `SELECT
         p.*,
         p.unit_price as base_price,
-        p.quantity as stock_quantity,
+        p.stock_quantity,
         c.name as category_name
        FROM products p
        LEFT JOIN categories c ON p.category_id = c.id
@@ -582,10 +582,11 @@ router.get('/', async (req: Request, res: Response) => {
       categoryId: row.category_id,
       categoryName: row.category_name,
       basePrice: row.unit_price,
-      stockQuantity: row.quantity,
+      stockQuantity: row.stock_quantity,
       weight: row.weight,
       allowsCustomMaterials: row.allows_custom_materials,
       isActive: row.is_active,
+      images: row.images || [],
       createdAt: row.created_at,
       updatedAt: row.updated_at
     }));
@@ -649,7 +650,7 @@ router.post('/', async (req: Request, res: Response) => {
     const result = await client.query(
       `INSERT INTO products (
         sku, name, description, category_id, unit_price,
-        weight, quantity, is_active, allows_custom_materials, images, created_at, updated_at
+        weight, stock_quantity, is_active, allows_custom_materials, images, created_at, updated_at
        ) VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8, $9, NOW(), NOW())
        RETURNING *`,
       [
@@ -703,10 +704,11 @@ router.post('/', async (req: Request, res: Response) => {
         description: createdProduct.description,
         categoryId: createdProduct.category_id,
         basePrice: createdProduct.unit_price,
-        stockQuantity: createdProduct.quantity,
+        stockQuantity: createdProduct.stock_quantity,
         weight: createdProduct.weight,
         allowsCustomMaterials: createdProduct.allows_custom_materials,
         isActive: createdProduct.is_active,
+        images: createdProduct.images || [],
         createdAt: createdProduct.created_at,
         updatedAt: createdProduct.updated_at
       },
@@ -750,15 +752,19 @@ router.put('/:id', async (req: Request, res: Response) => {
 
     client = await getDbConnection();
 
-    // Check if product exists
+    // Check if product exists and get current images
     const existing = await client.query(
-      'SELECT id FROM products WHERE id = $1',
+      'SELECT id, images FROM products WHERE id = $1',
       [id]
     );
 
     if (existing.rows.length === 0) {
       return res.status(404).json({ error: 'Product not found' });
     }
+
+    // Preserve existing images if not provided in request
+    const currentImages = existing.rows[0].images || [];
+    const finalImages = images !== undefined ? images : currentImages;
 
     // Check if SKU is being changed to one that already exists
     const skuCheck = await client.query(
@@ -774,7 +780,7 @@ router.put('/:id', async (req: Request, res: Response) => {
     const result = await client.query(
       `UPDATE products
        SET sku = $1, name = $2, description = $3, category_id = $4,
-           unit_price = $5, weight = $6, quantity = $7,
+           unit_price = $5, weight = $6, stock_quantity = $7,
            allows_custom_materials = $8, images = $9, updated_at = NOW()
        WHERE id = $10
        RETURNING *`,
@@ -787,7 +793,7 @@ router.put('/:id', async (req: Request, res: Response) => {
         finalWeight,
         finalStockQty,
         finalAllowsCustom,
-        JSON.stringify(images || []),
+        JSON.stringify(finalImages),
         id
       ]
     );
@@ -831,10 +837,11 @@ router.put('/:id', async (req: Request, res: Response) => {
         description: updatedProduct.description,
         categoryId: updatedProduct.category_id,
         basePrice: updatedProduct.unit_price,
-        stockQuantity: updatedProduct.quantity,
+        stockQuantity: updatedProduct.stock_quantity,
         weight: updatedProduct.weight,
         allowsCustomMaterials: updatedProduct.allows_custom_materials,
         isActive: updatedProduct.is_active,
+        images: updatedProduct.images || [],
         createdAt: updatedProduct.created_at,
         updatedAt: updatedProduct.updated_at
       },
@@ -896,7 +903,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 
     // Get product
     const productResult = await client.query(
-      `SELECT p.*, p.unit_price as base_price, p.quantity as stock_quantity,
+      `SELECT p.*, p.unit_price as base_price, p.stock_quantity,
               c.name as category_name
        FROM products p
        LEFT JOIN categories c ON p.category_id = c.id
@@ -949,6 +956,7 @@ router.get('/:id', async (req: Request, res: Response) => {
       leadTime: product.lead_time,
       allowsCustomMaterials: product.allows_custom_materials,
       materials: product.materials,
+      images: product.images || [],
       isActive: product.is_active,
       createdAt: product.created_at,
       updatedAt: product.updated_at
@@ -1078,9 +1086,27 @@ router.delete('/:id/images/:filename', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Image not found' });
     }
 
-    // Delete from MinIO
-    const objectName = `products/${id}/${filename}`;
-    await minioClient.removeObject(bucketName, objectName);
+    // Archive in MinIO instead of deleting
+    const sourceObjectName = `products/${id}/${filename}`;
+    const archiveObjectName = `archived/products/${id}/${Date.now()}_${filename}`;
+
+    try {
+      // Copy to archive folder
+      await minioClient.copyObject(
+        bucketName,
+        archiveObjectName,
+        `/${bucketName}/${sourceObjectName}`,
+        null
+      );
+
+      // Remove from original location
+      await minioClient.removeObject(bucketName, sourceObjectName);
+
+      logger.info(`Image archived: ${sourceObjectName} -> ${archiveObjectName}`);
+    } catch (minioError: any) {
+      logger.error('MinIO archive error:', minioError);
+      // Continue with database cleanup even if MinIO operation fails
+    }
 
     // Remove from database
     const updatedImages = currentImages.filter((img: any) => img.filename !== filename);
