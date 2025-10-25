@@ -306,12 +306,13 @@ router.post('/', authenticateToken, [
           line_total = round(line_subtotal - item.discount_value);
         }
 
-        // Calculate tax
-        const tax_amount = round(line_total * (item.tax_rate || 20) / 100);
+        // Calculate tax (use item.tax_rate, default 0 for individuals)
+        const tax_amount = round(line_total * (item.tax_rate || 0) / 100);
         total_tax += tax_amount;
         subtotal += line_total;
 
         item.line_total = line_total;
+        item.tax_amount = tax_amount;
       }
 
       // Round accumulated totals
@@ -370,7 +371,7 @@ router.post('/', authenticateToken, [
             item.unit_price,
             line_discount_percent,
             line_discount_amount,
-            item.tax_rate || 20,
+            item.tax_rate || 0,
             item.tax_amount || 0,
             item.line_total,
             item.notes || null,
@@ -441,8 +442,9 @@ router.put('/:id', authenticateToken, [
         const base_total = round(item.quantity * item.unit_price);
         const line_discount_amount = round(base_total * (item.discount_percent || 0) / 100);
         const line_subtotal = round(base_total - line_discount_amount);
-        const tax_amount = round(line_subtotal * (item.tax_rate || 20) / 100);
-        const line_total = round(line_subtotal + tax_amount);
+        const tax_amount = round(line_subtotal * (item.tax_rate || 0) / 100);
+        // Line total should be HT (before tax), tax is applied at quotation level
+        const line_total = round(line_subtotal);
 
         total_tax += tax_amount;
         subtotal += line_subtotal;
@@ -524,7 +526,7 @@ router.put('/:id', authenticateToken, [
             item.unit_price,
             item.discount_percent || 0,
             item.discount_amount || 0,
-            item.tax_rate || 20,
+            item.tax_rate || 0,
             item.tax_amount || 0,
             item.line_total,
             item.notes || null,
