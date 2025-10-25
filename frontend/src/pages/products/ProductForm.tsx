@@ -52,8 +52,20 @@ export function ProductForm({ onClose, onSubmit, product, categories = [], mater
     allowsCustomMaterials: product?.allowsCustomMaterials ?? true,
   })
 
-  const [materialEntries, setMaterialEntries] = useState<MaterialEntry[]>(
-    product?.materials || [
+  const [materialEntries, setMaterialEntries] = useState<MaterialEntry[]>(() => {
+    if (product?.materials && product.materials.length > 0) {
+      return product.materials.map((m: any) => ({
+        id: m.id || Date.now().toString(),
+        partName: m.partName || '',
+        materialId: m.materialId || '',
+        finishId: m.finishId || 'none',
+        quantity: m.quantity || 1,
+        unit: m.unit || 'piece',
+        extraCost: parseFloat(m.extraCost) || 0,
+        notes: m.notes || '',
+      }))
+    }
+    return [
       {
         id: '1',
         partName: '',
@@ -65,7 +77,7 @@ export function ProductForm({ onClose, onSubmit, product, categories = [], mater
         notes: '',
       },
     ]
-  )
+  })
 
   const [productImages, setProductImages] = useState(product?.images || [])
 
@@ -101,9 +113,10 @@ export function ProductForm({ onClose, onSubmit, product, categories = [], mater
   }
 
   const updateMaterial = (id: string, field: keyof MaterialEntry, value: any) => {
-    setMaterialEntries(
-      materialEntries.map((m) => (m.id === id ? { ...m, [field]: value } : m))
-    )
+    console.log('updateMaterial called:', { id, field, value })
+    const updated = materialEntries.map((m) => (m.id === id ? { ...m, [field]: value } : m))
+    console.log('Updated materials:', updated)
+    setMaterialEntries(updated)
   }
 
   const getAvailableFinishes = (materialId: string) => {
@@ -119,11 +132,12 @@ export function ProductForm({ onClose, onSubmit, product, categories = [], mater
         .filter((m) => m.materialId && m.partName)
         .map((m) => ({
           ...m,
-          finishId: m.finishId === 'none' ? null : m.finishId,
+          finishId: (m.finishId === 'none' || !m.finishId) ? null : m.finishId,
         })),
       // Don't include images - they're managed separately via upload/delete endpoints
       // images: productImages,
     }
+    console.log('Submitting product with materials:', JSON.stringify(data.materials, null, 2))
     onSubmit(data)
     onClose()
   }
@@ -341,19 +355,31 @@ export function ProductForm({ onClose, onSubmit, product, categories = [], mater
                         <div className="space-y-2">
                           <Label>Finition</Label>
                           <Select
-                            value={material.finishId}
+                            key={`finish-${material.id}-${material.finishId}`}
+                            value={material.finishId || 'none'}
                             onValueChange={(value) => {
-                              updateMaterial(material.id, 'finishId', value)
-                              // Auto-populate extra cost from finish price
-                              if (value !== 'none') {
-                                const selectedFinish = availableFinishes.find((f: any) => f.id === value)
-                                if (selectedFinish && selectedFinish.extra_cost) {
-                                  updateMaterial(material.id, 'extraCost', parseFloat(selectedFinish.extra_cost) || 0)
+                              console.log('Finish selected:', value)
+                              console.log('Current material:', material)
+
+                              // Create updated entries with both finishId and extraCost
+                              const updatedEntries = materialEntries.map((m) => {
+                                if (m.id === material.id) {
+                                  if (value !== 'none' && value) {
+                                    const selectedFinish = availableFinishes.find((f: any) => f.id === value)
+                                    console.log('Selected finish:', selectedFinish)
+                                    if (selectedFinish) {
+                                      const extraCost = parseFloat(selectedFinish.extra_cost) || 0
+                                      console.log('Setting finish and cost:', { finishId: value, extraCost })
+                                      return { ...m, finishId: value, extraCost }
+                                    }
+                                  }
+                                  // Reset to none
+                                  return { ...m, finishId: value, extraCost: 0 }
                                 }
-                              } else {
-                                // Reset extra cost when "Sans finition" is selected
-                                updateMaterial(material.id, 'extraCost', 0)
-                              }
+                                return m
+                              })
+                              console.log('Updated material entries:', updatedEntries)
+                              setMaterialEntries(updatedEntries)
                             }}
                             disabled={!material.materialId}
                           >
@@ -364,7 +390,7 @@ export function ProductForm({ onClose, onSubmit, product, categories = [], mater
                               <SelectItem value="none">Sans finition</SelectItem>
                               {getAvailableFinishes(material.materialId).map((fin: any) => (
                                 <SelectItem key={fin.id} value={fin.id}>
-                                  {fin.name} {fin.extra_cost > 0 && `(+${fin.extra_cost}€)`}
+                                  {fin.name} {parseFloat(fin.extra_cost) > 0 && `(+${parseFloat(fin.extra_cost).toFixed(2)}€)`}
                                 </SelectItem>
                               ))}
                             </SelectContent>

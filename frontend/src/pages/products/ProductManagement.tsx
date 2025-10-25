@@ -298,13 +298,26 @@ export function ProductManagement() {
       ),
     },
     {
-      accessorKey: 'basePrice',
+      accessorKey: 'totalPrice',
       header: ({ column }: any) => (
-        <DataTableColumnHeader column={column} title="Prix de base" />
+        <DataTableColumnHeader column={column} title="Prix HT" />
       ),
-      cell: ({ row }: any) => (
-        <div className="font-medium">{formatCurrency(row.getValue('basePrice'))}</div>
-      ),
+      cell: ({ row }: any) => {
+        const totalPrice = row.original.totalPrice || row.original.basePrice || 0
+        const hasFinishCost = row.original.materialCost > 0
+        return (
+          <div className="space-y-1">
+            <div className={`font-medium ${hasFinishCost ? 'text-green-600' : ''}`}>
+              {formatCurrency(totalPrice)}
+            </div>
+            {hasFinishCost && (
+              <div className="text-xs text-muted-foreground">
+                Base: {formatCurrency(row.original.basePrice)} + Finitions: {formatCurrency(row.original.materialCost)}
+              </div>
+            )}
+          </div>
+        )
+      },
     },
     {
       accessorKey: 'stockQuantity',
@@ -900,9 +913,20 @@ export function ProductManagement() {
                     )}
                   </div>
                 </div>
-                <div className="text-right">
-                  <div className="text-2xl font-bold">{formatCurrency(viewingProduct.basePrice)}</div>
-                  <div className="text-sm text-muted-foreground">Prix de base HT</div>
+                <div className="text-right space-y-1">
+                  {viewingProduct.materialCost > 0 ? (
+                    <>
+                      <div className="text-sm text-muted-foreground">Prix de base HT: {formatCurrency(viewingProduct.basePrice)}</div>
+                      <div className="text-sm text-muted-foreground">Coûts finitions: {formatCurrency(viewingProduct.materialCost)}</div>
+                      <div className="text-2xl font-bold text-green-600">{formatCurrency(viewingProduct.totalPrice)}</div>
+                      <div className="text-sm text-muted-foreground">Prix total HT</div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="text-2xl font-bold">{formatCurrency(viewingProduct.totalPrice || viewingProduct.basePrice)}</div>
+                      <div className="text-sm text-muted-foreground">Prix HT</div>
+                    </>
+                  )}
                 </div>
               </div>
 

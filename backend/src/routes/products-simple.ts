@@ -566,7 +566,19 @@ router.get('/', async (req: Request, res: Response) => {
         p.*,
         p.unit_price as base_price,
         p.stock_quantity,
-        c.name as category_name
+        c.name as category_name,
+        COALESCE(
+          (SELECT SUM(
+            COALESCE(pm.extra_cost, 0) +
+            COALESCE(
+              (SELECT f.extra_cost FROM finishes f WHERE f.id = pm.finish_id),
+              0
+            )
+          )
+          FROM product_materials pm
+          WHERE pm.product_id = p.id),
+          0
+        ) as total_material_cost
        FROM products p
        LEFT JOIN categories c ON p.category_id = c.id
        WHERE p.is_active = true
@@ -574,22 +586,34 @@ router.get('/', async (req: Request, res: Response) => {
     );
 
     // Map database columns to frontend expected format
-    const mappedProducts = result.rows.map(row => ({
-      id: row.id,
-      sku: row.sku,
-      name: row.name,
-      description: row.description,
-      categoryId: row.category_id,
-      categoryName: row.category_name,
-      basePrice: row.unit_price,
-      stockQuantity: row.stock_quantity,
-      weight: row.weight,
-      allowsCustomMaterials: row.allows_custom_materials,
-      isActive: row.is_active,
-      images: row.images || [],
-      createdAt: row.created_at,
-      updatedAt: row.updated_at
-    }));
+    const mappedProducts = result.rows.map(row => {
+      const basePrice = parseFloat(row.unit_price) || 0;
+      const materialCost = parseFloat(row.total_material_cost) || 0;
+      return {
+        id: row.id,
+        sku: row.sku,
+        name: row.name,
+        description: row.description,
+        categoryId: row.category_id,
+        categoryName: row.category_name,
+        basePrice: basePrice,
+        materialCost: materialCost,
+        totalPrice: basePrice + materialCost,
+        stockQuantity: row.stock_quantity,
+        weight: row.weight,
+        dimensions: {
+          length: row.dimensions_length,
+          width: row.dimensions_width,
+          height: row.dimensions_height
+        },
+        leadTime: row.lead_time_days,
+        allowsCustomMaterials: row.allows_custom_materials,
+        isActive: row.is_active,
+        images: row.images || [],
+        createdAt: row.created_at,
+        updatedAt: row.updated_at
+      }
+    });
 
     res.json({
       success: true,
@@ -616,7 +640,7 @@ router.post('/', async (req: Request, res: Response) => {
     const {
       sku, name, description, category_id, categoryId,
       base_price, basePrice, dimensions, weight, stock_quantity, stockQuantity,
-      type, isCustomizable, allowsCustomMaterials, isMadeToOrder, materials, images
+      type, isCustomizable, allowsCustomMaterials, isMadeToOrder, materials, images, leadTime
     } = req.body;
 
     // Handle both camelCase and snake_case
@@ -628,6 +652,12 @@ router.post('/', async (req: Request, res: Response) => {
     const finalStockQty = stock_quantity ?? stockQuantity ?? 0;
     const finalWeight = weight || null;
     const finalAllowsCustom = allowsCustomMaterials ?? isCustomizable ?? true;
+    const finalLeadTime = leadTime ? parseInt(leadTime.toString()) : 0;
+
+    // Handle dimensions
+    const finalDimLength = dimensions?.length ? parseFloat(dimensions.length.toString()) : null;
+    const finalDimWidth = dimensions?.width ? parseFloat(dimensions.width.toString()) : null;
+    const finalDimHeight = dimensions?.height ? parseFloat(dimensions.height.toString()) : null;
 
     if (!finalSku || !finalName || !finalPrice) {
       logger.error('Missing required fields:', { sku: finalSku, name: finalName, base_price: finalPrice });
@@ -650,8 +680,10 @@ router.post('/', async (req: Request, res: Response) => {
     const result = await client.query(
       `INSERT INTO products (
         sku, name, description, category_id, unit_price,
-        weight, stock_quantity, is_active, allows_custom_materials, images, created_at, updated_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8, $9, NOW(), NOW())
+        weight, stock_quantity, is_active, allows_custom_materials, images,
+        dimensions_length, dimensions_width, dimensions_height, lead_time_days,
+        created_at, updated_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8, $9, $10, $11, $12, $13, NOW(), NOW())
        RETURNING *`,
       [
         finalSku,
@@ -662,7 +694,11 @@ router.post('/', async (req: Request, res: Response) => {
         finalWeight,
         finalStockQty,
         finalAllowsCustom,
-        JSON.stringify(images || [])
+        JSON.stringify(images || []),
+        finalDimLength,
+        finalDimWidth,
+        finalDimHeight,
+        finalLeadTime
       ]
     );
 
@@ -672,6 +708,7 @@ router.post('/', async (req: Request, res: Response) => {
     if (materials && Array.isArray(materials) && materials.length > 0) {
       for (const material of materials) {
         if (material.materialId && material.partName) {
+          logger.info('Inserting material with finishId:', material.finishId);
           await client.query(
             `INSERT INTO product_materials (
               product_id, material_id, finish_id, part_name, quantity,
@@ -706,6 +743,12 @@ router.post('/', async (req: Request, res: Response) => {
         basePrice: createdProduct.unit_price,
         stockQuantity: createdProduct.stock_quantity,
         weight: createdProduct.weight,
+        dimensions: {
+          length: createdProduct.dimensions_length,
+          width: createdProduct.dimensions_width,
+          height: createdProduct.dimensions_height
+        },
+        leadTime: createdProduct.lead_time_days,
         allowsCustomMaterials: createdProduct.allows_custom_materials,
         isActive: createdProduct.is_active,
         images: createdProduct.images || [],
@@ -733,7 +776,7 @@ router.put('/:id', async (req: Request, res: Response) => {
     const {
       sku, name, description, category_id, categoryId,
       base_price, basePrice, dimensions, weight, stock_quantity, stockQuantity,
-      type, isCustomizable, allowsCustomMaterials, isMadeToOrder, materials, images
+      type, isCustomizable, allowsCustomMaterials, isMadeToOrder, materials, images, leadTime
     } = req.body;
 
     // Handle both camelCase and snake_case
@@ -745,6 +788,12 @@ router.put('/:id', async (req: Request, res: Response) => {
     const finalStockQty = stock_quantity ?? stockQuantity ?? 0;
     const finalWeight = weight || null;
     const finalAllowsCustom = allowsCustomMaterials ?? isCustomizable ?? true;
+    const finalLeadTime = leadTime ? parseInt(leadTime.toString()) : 0;
+
+    // Handle dimensions
+    const finalDimLength = dimensions?.length ? parseFloat(dimensions.length.toString()) : null;
+    const finalDimWidth = dimensions?.width ? parseFloat(dimensions.width.toString()) : null;
+    const finalDimHeight = dimensions?.height ? parseFloat(dimensions.height.toString()) : null;
 
     if (!finalSku || !finalName || !finalPrice) {
       return res.status(400).json({ error: 'SKU, name, and base price are required' });
@@ -781,8 +830,10 @@ router.put('/:id', async (req: Request, res: Response) => {
       `UPDATE products
        SET sku = $1, name = $2, description = $3, category_id = $4,
            unit_price = $5, weight = $6, stock_quantity = $7,
-           allows_custom_materials = $8, images = $9, updated_at = NOW()
-       WHERE id = $10
+           allows_custom_materials = $8, images = $9,
+           dimensions_length = $10, dimensions_width = $11, dimensions_height = $12,
+           lead_time_days = $13, updated_at = NOW()
+       WHERE id = $14
        RETURNING *`,
       [
         finalSku,
@@ -794,6 +845,10 @@ router.put('/:id', async (req: Request, res: Response) => {
         finalStockQty,
         finalAllowsCustom,
         JSON.stringify(finalImages),
+        finalDimLength,
+        finalDimWidth,
+        finalDimHeight,
+        finalLeadTime,
         id
       ]
     );
@@ -839,6 +894,12 @@ router.put('/:id', async (req: Request, res: Response) => {
         basePrice: updatedProduct.unit_price,
         stockQuantity: updatedProduct.stock_quantity,
         weight: updatedProduct.weight,
+        dimensions: {
+          length: updatedProduct.dimensions_length,
+          width: updatedProduct.dimensions_width,
+          height: updatedProduct.dimensions_height
+        },
+        leadTime: updatedProduct.lead_time_days,
         allowsCustomMaterials: updatedProduct.allows_custom_materials,
         isActive: updatedProduct.is_active,
         images: updatedProduct.images || [],
@@ -901,10 +962,22 @@ router.get('/:id', async (req: Request, res: Response) => {
 
     client = await getDbConnection();
 
-    // Get product
+    // Get product with material cost calculation
     const productResult = await client.query(
       `SELECT p.*, p.unit_price as base_price, p.stock_quantity,
-              c.name as category_name
+              c.name as category_name,
+              COALESCE(
+                (SELECT SUM(
+                  COALESCE(pm.extra_cost, 0) +
+                  COALESCE(
+                    (SELECT f.extra_cost FROM finishes f WHERE f.id = pm.finish_id),
+                    0
+                  )
+                )
+                FROM product_materials pm
+                WHERE pm.product_id = p.id),
+                0
+              ) as total_material_cost
        FROM products p
        LEFT JOIN categories c ON p.category_id = c.id
        WHERE p.id = $1`,
@@ -919,7 +992,8 @@ router.get('/:id', async (req: Request, res: Response) => {
 
     // Get materials for this product
     const materialsResult = await client.query(
-      `SELECT pm.*, m.name as material_name, f.name as finish_name
+      `SELECT pm.*, m.name as material_name, f.name as finish_name,
+              f.extra_cost as finish_extra_cost
        FROM product_materials pm
        LEFT JOIN materials m ON pm.material_id = m.id
        LEFT JOIN finishes f ON pm.finish_id = f.id
@@ -938,8 +1012,13 @@ router.get('/:id', async (req: Request, res: Response) => {
       quantity: m.quantity,
       unit: m.unit_of_measure,
       extraCost: m.extra_cost,
+      finishExtraCost: m.finish_extra_cost,
       notes: m.notes
     }));
+
+    // Calculate prices
+    const basePrice = parseFloat(product.base_price) || 0;
+    const materialCost = parseFloat(product.total_material_cost) || 0;
 
     // Map to frontend expected format
     const formattedProduct = {
@@ -949,11 +1028,17 @@ router.get('/:id', async (req: Request, res: Response) => {
       description: product.description,
       categoryId: product.category_id,
       categoryName: product.category_name,
-      basePrice: product.base_price,
+      basePrice: basePrice,
+      materialCost: materialCost,
+      totalPrice: basePrice + materialCost,
       stockQuantity: product.stock_quantity,
-      dimensions: product.dimensions,
+      dimensions: {
+        length: product.dimensions_length,
+        width: product.dimensions_width,
+        height: product.dimensions_height
+      },
       weight: product.weight,
-      leadTime: product.lead_time,
+      leadTime: product.lead_time_days,
       allowsCustomMaterials: product.allows_custom_materials,
       materials: product.materials,
       images: product.images || [],
