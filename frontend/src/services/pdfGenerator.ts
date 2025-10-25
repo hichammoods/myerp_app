@@ -46,11 +46,54 @@ interface Quotation {
   items: QuotationItem[]
   subtotal: number
   totalDiscount: number
+  shippingCost?: number
+  installationCost?: number
   totalTax: number
   total: number
   notes?: string
   termsAndConditions?: string
   status: 'draft' | 'sent' | 'accepted' | 'rejected' | 'expired'
+}
+
+interface SalesOrder {
+  id: string
+  orderNumber: string
+  orderDate: Date
+  expectedDeliveryDate?: Date
+  quotationNumber?: string  // Cross-reference to quotation
+  client: Client
+  items: QuotationItem[]
+  subtotal: number
+  totalDiscount: number
+  shippingCost?: number
+  installationCost?: number
+  totalTax: number
+  total: number
+  notes?: string
+  deliveryAddress?: string
+  status: string
+}
+
+interface Invoice {
+  id: string
+  invoiceNumber: string
+  invoiceDate: Date
+  dueDate?: Date
+  quotationNumber?: string  // Cross-reference to quotation
+  orderNumber?: string      // Cross-reference to sales order
+  client: Client
+  items: QuotationItem[]
+  subtotal: number
+  totalDiscount: number
+  shippingCost?: number
+  installationCost?: number
+  totalTax: number
+  total: number
+  amountPaid?: number
+  amountDue?: number
+  notes?: string
+  paymentTerms?: string
+  status: string
 }
 
 export class PDFGenerator {
@@ -79,6 +122,18 @@ export class PDFGenerator {
       format: 'a4',
     })
     this.currentY = this.margin
+  }
+
+  private formatPaymentTerms(terms: string | undefined): string {
+    if (!terms) return ''
+
+    // If it's just a number, format it as "Paiement sous X jours"
+    if (/^\d+$/.test(terms.trim())) {
+      return `Paiement sous ${terms} jours`
+    }
+
+    // Otherwise return as-is
+    return terms
   }
 
   private addNewPageIfNeeded(requiredSpace: number = 30) {
@@ -151,7 +206,7 @@ export class PDFGenerator {
     this.currentY += 6
   }
 
-  private drawClientInfo(client: Client, quotation: Quotation) {
+  private drawClientInfo(client: Client, quotation: Quotation, labelForSecondDate: string = 'Validité:') {
     // Add some space after the separator line
     this.currentY += 2
 
@@ -165,20 +220,20 @@ export class PDFGenerator {
     this.doc.setFontSize(8)
     this.doc.text(
       quotation.date.toLocaleDateString('fr-FR'),
-      this.margin + 12,
+      this.margin + 20,
       this.currentY
     )
 
     this.currentY += 4
     this.doc.setFont('helvetica', 'bold')
     this.doc.setFontSize(9)
-    this.doc.text('Validité:', this.margin, this.currentY)
+    this.doc.text(labelForSecondDate, this.margin, this.currentY)
 
     this.doc.setFont('helvetica', 'normal')
     this.doc.setFontSize(8)
     this.doc.text(
       quotation.validUntil.toLocaleDateString('fr-FR'),
-      this.margin + 12,
+      this.margin + 58,
       this.currentY
     )
 
@@ -232,10 +287,10 @@ export class PDFGenerator {
   private drawItemsTable(items: QuotationItem[]) {
     this.currentY += 6
 
-    // Table headers - optimized column widths to prevent truncation
-    const headers = ['Description', 'Qté', 'P.U. HT', 'Rem.', 'TVA', 'Total HT']
-    // Adjusted widths: Description slightly smaller, Total larger to fit numbers
-    const columnWidths = [70, 12, 22, 16, 12, 38]
+    // Table headers - removed TVA column as per business decision (individuals not subject to VAT, no per-line tax display)
+    const headers = ['Description', 'Qté', 'P.U. HT', 'Rem.', 'Total HT']
+    // Adjusted widths: Removed TVA column, distributed space to Description and Total
+    const columnWidths = [80, 15, 24, 18, 33]
     const tableX = this.margin
     const tableWidth = this.pageWidth - 2 * this.margin
 
@@ -305,13 +360,9 @@ export class PDFGenerator {
       }
       currentX += columnWidths[3]
 
-      // Tax - centered
-      this.doc.text(`${item.tax}%`, currentX + columnWidths[4] / 2, this.currentY + 4, { align: 'center' })
-      currentX += columnWidths[4]
-
-      // Total - right aligned with bold
+      // Total - right aligned with bold (removed tax column)
       this.doc.setFont('helvetica', 'bold')
-      this.doc.text(`${item.total.toFixed(2)} €`, currentX + columnWidths[5] - 2, this.currentY + 4, { align: 'right' })
+      this.doc.text(`${item.total.toFixed(2)} €`, currentX + columnWidths[4] - 2, this.currentY + 4, { align: 'right' })
       this.doc.setFont('helvetica', 'normal')
 
       this.currentY += Math.max(6, lineCount * 3.5 + 2)
@@ -343,6 +394,20 @@ export class PDFGenerator {
     if (quotation.totalDiscount > 0) {
       this.doc.text('Remise totale:', labelX, this.currentY, { align: 'right' })
       this.doc.text(`-${quotation.totalDiscount.toFixed(2)} €`, totalsX + 50, this.currentY, { align: 'right' })
+      this.currentY += 5
+    }
+
+    // Shipping cost if any
+    if (quotation.shippingCost && quotation.shippingCost > 0) {
+      this.doc.text('Frais de livraison:', labelX, this.currentY, { align: 'right' })
+      this.doc.text(`${quotation.shippingCost.toFixed(2)} €`, totalsX + 50, this.currentY, { align: 'right' })
+      this.currentY += 5
+    }
+
+    // Installation cost if any
+    if (quotation.installationCost && quotation.installationCost > 0) {
+      this.doc.text('Frais d\'installation:', labelX, this.currentY, { align: 'right' })
+      this.doc.text(`${quotation.installationCost.toFixed(2)} €`, totalsX + 50, this.currentY, { align: 'right' })
       this.currentY += 5
     }
 
@@ -514,12 +579,310 @@ export class PDFGenerator {
     pdf.save(filename)
     return pdf
   }
+
+  private drawSalesOrderHeader(company: Company, salesOrder: SalesOrder) {
+    // Sales Order Title
+    this.doc.setFont('helvetica', 'bold')
+    this.doc.setFontSize(16)
+    this.doc.setTextColor(this.primaryColor)
+    this.doc.text('BON DE COMMANDE', this.margin, this.currentY)
+
+    // Order number below title
+    this.currentY += 5
+    this.doc.setFontSize(11)
+    this.doc.setTextColor(this.textColor)
+    this.doc.text(`N° ${salesOrder.orderNumber}`, this.margin, this.currentY)
+
+    // Cross-reference to quotation if available
+    if (salesOrder.quotationNumber) {
+      this.currentY += 4
+      this.doc.setFontSize(8)
+      this.doc.setTextColor(this.lightGray)
+      this.doc.text(`Réf. Devis: ${salesOrder.quotationNumber}`, this.margin, this.currentY)
+    }
+
+    // Company info on the right (same as quotation)
+    const companyBoxX = 110
+    this.currentY = this.margin
+
+    this.doc.setFont('helvetica', 'bold')
+    this.doc.setFontSize(11)
+    this.doc.setTextColor(this.textColor)
+    this.doc.text(company.name, companyBoxX, this.currentY, { align: 'left' })
+
+    this.currentY += 4
+    this.doc.setFont('helvetica', 'normal')
+    this.doc.setFontSize(8)
+    this.doc.setTextColor(this.lightGray)
+
+    this.doc.text(company.address, companyBoxX, this.currentY)
+    this.currentY += 3
+    this.doc.text(`${company.postalCode} ${company.city}`, companyBoxX, this.currentY)
+    this.currentY += 3
+    this.doc.text(`Tél: ${company.phone}`, companyBoxX, this.currentY)
+    this.currentY += 3
+    this.doc.text(`Email: ${company.email}`, companyBoxX, this.currentY)
+
+    if (company.siret) {
+      this.currentY += 3
+      this.doc.text(`SIRET: ${company.siret}`, companyBoxX, this.currentY)
+    }
+    if (company.tva) {
+      this.currentY += 3
+      this.doc.text(`TVA: ${company.tva}`, companyBoxX, this.currentY)
+    }
+
+    this.currentY = this.margin + 32
+  }
+
+  private drawInvoiceHeader(company: Company, invoice: Invoice) {
+    // Invoice Title
+    this.doc.setFont('helvetica', 'bold')
+    this.doc.setFontSize(16)
+    this.doc.setTextColor(this.primaryColor)
+    this.doc.text('FACTURE', this.margin, this.currentY)
+
+    // Invoice number below title
+    this.currentY += 5
+    this.doc.setFontSize(11)
+    this.doc.setTextColor(this.textColor)
+    this.doc.text(`N° ${invoice.invoiceNumber}`, this.margin, this.currentY)
+
+    // Cross-references
+    if (invoice.orderNumber || invoice.quotationNumber) {
+      this.currentY += 4
+      this.doc.setFontSize(8)
+      this.doc.setTextColor(this.lightGray)
+
+      if (invoice.orderNumber) {
+        this.doc.text(`Réf. Commande: ${invoice.orderNumber}`, this.margin, this.currentY)
+        this.currentY += 3
+      }
+      if (invoice.quotationNumber) {
+        this.doc.text(`Réf. Devis: ${invoice.quotationNumber}`, this.margin, this.currentY)
+      }
+    }
+
+    // Company info on the right (same as quotation)
+    const companyBoxX = 110
+    this.currentY = this.margin
+
+    this.doc.setFont('helvetica', 'bold')
+    this.doc.setFontSize(11)
+    this.doc.setTextColor(this.textColor)
+    this.doc.text(company.name, companyBoxX, this.currentY, { align: 'left' })
+
+    this.currentY += 4
+    this.doc.setFont('helvetica', 'normal')
+    this.doc.setFontSize(8)
+    this.doc.setTextColor(this.lightGray)
+
+    this.doc.text(company.address, companyBoxX, this.currentY)
+    this.currentY += 3
+    this.doc.text(`${company.postalCode} ${company.city}`, companyBoxX, this.currentY)
+    this.currentY += 3
+    this.doc.text(`Tél: ${company.phone}`, companyBoxX, this.currentY)
+    this.currentY += 3
+    this.doc.text(`Email: ${company.email}`, companyBoxX, this.currentY)
+
+    if (company.siret) {
+      this.currentY += 3
+      this.doc.text(`SIRET: ${company.siret}`, companyBoxX, this.currentY)
+    }
+    if (company.tva) {
+      this.currentY += 3
+      this.doc.text(`TVA: ${company.tva}`, companyBoxX, this.currentY)
+    }
+
+    this.currentY = this.margin + 35
+  }
+
+  public generateSalesOrderPDF(
+    company: Company,
+    salesOrder: SalesOrder,
+    download: boolean = true,
+    filename?: string
+  ): jsPDF {
+    this.resetDoc()
+
+    // Convert SalesOrder to Quotation format for reusing existing methods
+    const quotationFormat = {
+      ...salesOrder,
+      number: salesOrder.orderNumber,
+      date: salesOrder.orderDate,
+      validUntil: salesOrder.expectedDeliveryDate || salesOrder.orderDate,
+      status: 'sent' as const
+    }
+
+    // Draw all sections with sales order header
+    this.drawSalesOrderHeader(company, salesOrder)
+    this.drawClientInfo(salesOrder.client, quotationFormat, 'Date estimée de livraison:')
+    this.drawItemsTable(salesOrder.items)
+    this.drawTotals(quotationFormat)
+
+    // Custom footer for sales order
+    this.addNewPageIfNeeded(40)
+    this.currentY += 10
+
+    if (salesOrder.notes) {
+      this.doc.setFont('helvetica', 'bold')
+      this.doc.setFontSize(9)
+      this.doc.setTextColor(this.textColor)
+      this.doc.text('Notes:', this.margin, this.currentY)
+
+      this.currentY += 4
+      this.doc.setFont('helvetica', 'normal')
+      this.doc.setFontSize(8)
+      const notesLines = this.doc.splitTextToSize(salesOrder.notes, this.pageWidth - 2 * this.margin)
+      notesLines.forEach((line) => {
+        this.doc.text(line, this.margin, this.currentY)
+        this.currentY += 4
+      })
+    }
+
+    // Add page numbers
+    const pageCount = this.doc.getNumberOfPages()
+    this.doc.setFont('helvetica', 'normal')
+    this.doc.setFontSize(8)
+    this.doc.setTextColor(this.lightGray)
+
+    for (let i = 1; i <= pageCount; i++) {
+      this.doc.setPage(i)
+      this.doc.text(
+        `Page ${i} / ${pageCount}`,
+        this.pageWidth / 2,
+        this.pageHeight - 5,
+        { align: 'center' }
+      )
+    }
+
+    // Save or return
+    if (download) {
+      const defaultFilename = `Commande_${salesOrder.orderNumber}_${salesOrder.client.name.replace(/\s+/g, '_')}.pdf`
+      this.doc.save(filename || defaultFilename)
+    }
+
+    return this.doc
+  }
+
+  public generateInvoicePDF(
+    company: Company,
+    invoice: Invoice,
+    download: boolean = true,
+    filename?: string
+  ): jsPDF {
+    this.resetDoc()
+
+    // Convert Invoice to Quotation format for reusing existing methods
+    const quotationFormat = {
+      ...invoice,
+      number: invoice.invoiceNumber,
+      date: invoice.invoiceDate,
+      validUntil: invoice.dueDate || invoice.invoiceDate,
+      status: 'sent' as const
+    }
+
+    // Draw all sections with invoice header
+    this.drawInvoiceHeader(company, invoice)
+    this.drawClientInfo(invoice.client, quotationFormat, 'Date d\'échéance:')
+    this.drawItemsTable(invoice.items)
+    this.drawTotals(quotationFormat)
+
+    // Payment information for invoice
+    if (invoice.amountPaid !== undefined && invoice.amountDue !== undefined) {
+      this.currentY += 8
+      const totalsX = this.pageWidth - this.margin - 60
+      const labelX = totalsX - 35
+
+      this.doc.setFont('helvetica', 'bold')
+      this.doc.setFontSize(9)
+      this.doc.setTextColor(this.primaryColor)
+
+      this.doc.text('Montant payé:', labelX, this.currentY, { align: 'right' })
+      this.doc.text(`${invoice.amountPaid.toFixed(2)} €`, totalsX + 50, this.currentY, { align: 'right' })
+
+      this.currentY += 5
+
+      this.doc.text('Reste à payer:', labelX, this.currentY, { align: 'right' })
+      this.doc.text(`${invoice.amountDue.toFixed(2)} €`, totalsX + 50, this.currentY, { align: 'right' })
+    }
+
+    // Custom footer for invoice
+    this.addNewPageIfNeeded(40)
+    this.currentY += 10
+
+    if (invoice.paymentTerms) {
+      this.doc.setFont('helvetica', 'bold')
+      this.doc.setFontSize(9)
+      this.doc.setTextColor(this.textColor)
+      this.doc.text('Conditions de paiement:', this.margin, this.currentY)
+
+      this.currentY += 4
+      this.doc.setFont('helvetica', 'normal')
+      this.doc.setFontSize(8)
+      this.doc.text(this.formatPaymentTerms(invoice.paymentTerms), this.margin, this.currentY)
+      this.currentY += 6
+    }
+
+    if (invoice.notes) {
+      this.doc.setFont('helvetica', 'bold')
+      this.doc.setFontSize(9)
+      this.doc.setTextColor(this.textColor)
+      this.doc.text('Notes:', this.margin, this.currentY)
+
+      this.currentY += 4
+      this.doc.setFont('helvetica', 'normal')
+      this.doc.setFontSize(8)
+      const notesLines = this.doc.splitTextToSize(invoice.notes, this.pageWidth - 2 * this.margin)
+      notesLines.forEach((line) => {
+        this.doc.text(line, this.margin, this.currentY)
+        this.currentY += 4
+      })
+    }
+
+    // Add page numbers
+    const pageCount = this.doc.getNumberOfPages()
+    this.doc.setFont('helvetica', 'normal')
+    this.doc.setFontSize(8)
+    this.doc.setTextColor(this.lightGray)
+
+    for (let i = 1; i <= pageCount; i++) {
+      this.doc.setPage(i)
+      this.doc.text(
+        `Page ${i} / ${pageCount}`,
+        this.pageWidth / 2,
+        this.pageHeight - 5,
+        { align: 'center' }
+      )
+    }
+
+    // Save or return
+    if (download) {
+      const defaultFilename = `Facture_${invoice.invoiceNumber}_${invoice.client.name.replace(/\s+/g, '_')}.pdf`
+      this.doc.save(filename || defaultFilename)
+    }
+
+    return this.doc
+  }
 }
 
 // Export a singleton instance
 export const pdfGenerator = new PDFGenerator()
 
-// Helper function for quick PDF generation
+// Helper function to format payment terms
+export const formatPaymentTerms = (terms: string | undefined): string => {
+  if (!terms) return ''
+
+  // If it's just a number, format it as "Paiement sous X jours"
+  if (/^\d+$/.test(terms.trim())) {
+    return `Paiement sous ${terms} jours`
+  }
+
+  // Otherwise return as-is
+  return terms
+}
+
+// Helper functions for quick PDF generation
 export const generateQuotationPDF = (
   company: Company,
   quotation: Quotation,
@@ -529,3 +892,26 @@ export const generateQuotationPDF = (
   const generator = new PDFGenerator()
   return generator.generateQuotationPDF(company, quotation, download, filename)
 }
+
+export const generateSalesOrderPDF = (
+  company: Company,
+  salesOrder: SalesOrder,
+  download: boolean = true,
+  filename?: string
+) => {
+  const generator = new PDFGenerator()
+  return generator.generateSalesOrderPDF(company, salesOrder, download, filename)
+}
+
+export const generateInvoicePDF = (
+  company: Company,
+  invoice: Invoice,
+  download: boolean = true,
+  filename?: string
+) => {
+  const generator = new PDFGenerator()
+  return generator.generateInvoicePDF(company, invoice, download, filename)
+}
+
+// Export types for external use
+export type { Company, Client, QuotationItem, Quotation, SalesOrder, Invoice }

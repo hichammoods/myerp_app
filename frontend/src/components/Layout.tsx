@@ -11,7 +11,8 @@ import {
   LogOut,
   Menu,
   X,
-  BarChart3
+  BarChart3,
+  ShoppingCart
 } from 'lucide-react'
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
@@ -22,6 +23,7 @@ const navigation = [
   { name: 'Stock', href: '/inventory', icon: BarChart3 },
   { name: 'Contacts', href: '/contacts', icon: Users },
   { name: 'Devis', href: '/quotations', icon: FileText },
+  { name: 'Commandes', href: '/sales-orders', icon: ShoppingCart },
   { name: 'Factures', href: '/invoices', icon: Receipt },
   { name: 'Paramètres', href: '/settings', icon: Settings },
 ]

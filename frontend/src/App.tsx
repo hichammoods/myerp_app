@@ -8,6 +8,7 @@ import { Dashboard } from '@/pages/Dashboard'
 import { ProductManagement } from '@/pages/products/ProductManagement'
 import { ContactManagement } from '@/pages/contacts/ContactManagement'
 import { QuotationManagement } from '@/pages/quotations/QuotationManagement'
+import { SalesOrderManagement } from '@/pages/sales-orders/SalesOrderManagement'
 import { InvoiceManagement } from '@/pages/invoices/InvoiceManagement'
 import { StockManagement } from '@/pages/inventory/StockManagement'
 import { Login } from '@/pages/auth/Login'
@@ -39,6 +40,7 @@ function App() {
                 <Route path="inventory" element={<StockManagement />} />
                 <Route path="contacts" element={<ContactManagement />} />
                 <Route path="quotations" element={<QuotationManagement />} />
+                <Route path="sales-orders" element={<SalesOrderManagement />} />
                 <Route path="invoices" element={<InvoiceManagement />} />
                 <Route path="settings" element={<Settings />} />
               </Route>

@@ -4,11 +4,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
 import { EnhancedQuotationBuilder } from './EnhancedQuotationBuilder'
 import { toast } from 'react-hot-toast'
 import { generateQuotationPDF } from '@/services/pdfGenerator'
-import { quotationsApi, settingsApi } from '@/services/api'
+import { quotationsApi, settingsApi, salesOrdersApi } from '@/services/api'
 import {
   Plus,
   FileText,
@@ -57,6 +58,9 @@ export function QuotationManagement() {
   const [filterStatus, setFilterStatus] = useState('all')
   const [filterPeriod, setFilterPeriod] = useState('all')
   const [sortBy, setSortBy] = useState('date_desc')
+  const [showConvertDialog, setShowConvertDialog] = useState(false)
+  const [quotationToConvert, setQuotationToConvert] = useState<any>(null)
+  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState('')
 
   // Debounce search input
   useEffect(() => {
@@ -189,12 +193,43 @@ export function QuotationManagement() {
   // Update status mutation
   const updateStatusMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) => quotationsApi.updateStatus(id, status),
-    onSuccess: () => {
+    onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['quotations'] })
       queryClient.invalidateQueries({ queryKey: ['quotation-stats'] })
+
+      // Show appropriate success message based on status
+      const messages: Record<string, string> = {
+        'sent': 'Devis envoyé avec succès',
+        'accepted': 'Devis accepté avec succès',
+        'rejected': 'Devis refusé',
+        'draft': 'Devis remis en brouillon',
+        'expired': 'Devis marqué comme expiré'
+      }
+      toast.success(messages[variables.status] || 'Statut mis à jour avec succès')
     },
     onError: () => {
       toast.error('Erreur lors de la mise à jour du statut')
+    }
+  })
+
+  // Convert to sales order mutation
+  const convertToOrderMutation = useMutation({
+    mutationFn: ({ quotationId, expectedDeliveryDate }: { quotationId: string, expectedDeliveryDate?: string }) =>
+      salesOrdersApi.create({
+        quotation_id: quotationId,
+        expected_delivery_date: expectedDeliveryDate || undefined
+      }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['quotations'] })
+      queryClient.invalidateQueries({ queryKey: ['sales-orders'] })
+      queryClient.invalidateQueries({ queryKey: ['quotation-stats'] })
+      toast.success(`Commande ${data.order_number} créée avec succès`)
+      setShowConvertDialog(false)
+      setQuotationToConvert(null)
+      setExpectedDeliveryDate('')
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.error || 'Erreur lors de la conversion en commande')
     }
   })
 
@@ -306,13 +341,35 @@ export function QuotationManagement() {
   }
 
   const handleConvertToOrder = (quotation: any) => {
-    toast.success(`Devis ${quotation.quotation_number} converti en commande`)
-    // Implement order conversion logic
+    if (quotation.status !== 'accepted') {
+      toast.error('Seuls les devis acceptés peuvent être convertis en commande')
+      return
+    }
+
+    if (quotation.sales_order_id) {
+      toast.error('Ce devis a déjà été converti en commande')
+      return
+    }
+
+    // Set default delivery date to 2 weeks from now
+    const defaultDate = new Date()
+    defaultDate.setDate(defaultDate.getDate() + 14)
+    setExpectedDeliveryDate(defaultDate.toISOString().split('T')[0])
+
+    setQuotationToConvert(quotation)
+    setShowConvertDialog(true)
+  }
+
+  const confirmConvertToOrder = () => {
+    if (!quotationToConvert) return
+    convertToOrderMutation.mutate({
+      quotationId: quotationToConvert.id,
+      expectedDeliveryDate: expectedDeliveryDate || undefined
+    })
   }
 
   const handleSendQuotation = (quotation: any) => {
     updateStatusMutation.mutate({ id: quotation.id, status: 'sent' })
-    toast.success('Devis envoyé par email')
   }
 
   const handleDownloadPDF = async (quotation: any) => {
@@ -355,15 +412,14 @@ export function QuotationManagement() {
         console.warn('Could not fetch company settings, using defaults:', companyError)
       }
 
-      // Parse client address from quotation data
-      const addressParts = quotationData.delivery_address?.split(',') || []
+      // Use client contact address from quotation data
       const client = {
         name: quotationData.contact_name || 'Client',
         company: quotationData.company_name || '',
-        address: addressParts[0]?.trim() || '',
-        city: addressParts[1]?.trim() || '',
-        postalCode: addressParts[2]?.trim() || '',
-        country: 'France',
+        address: quotationData.contact_address || '',
+        city: quotationData.contact_city || '',
+        postalCode: quotationData.contact_postal_code || '',
+        country: quotationData.contact_country || 'France',
         phone: quotationData.contact_phone || '',
         email: quotationData.contact_email || ''
       }
@@ -407,6 +463,8 @@ export function QuotationManagement() {
         items,
         subtotal: parseFloat(quotationData.subtotal) || 0,
         totalDiscount: parseFloat(quotationData.discount_amount) || 0,
+        shippingCost: parseFloat(quotationData.shipping_cost) || 0,
+        installationCost: parseFloat(quotationData.installation_cost) || 0,
         totalTax: parseFloat(quotationData.tax_amount) || 0,
         total: parseFloat(quotationData.total_amount) || 0,
         notes: quotationData.notes || '',
@@ -509,7 +567,7 @@ export function QuotationManagement() {
       </div>
 
       {/* Statistics Cards */}
-      <div className="grid gap-4 md:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Devis</CardTitle>
@@ -555,18 +613,6 @@ export function QuotationManagement() {
             <div className="text-2xl font-bold">{formatCurrency(stats.potentialRevenue)}</div>
             <p className="text-xs text-muted-foreground mt-1">
               Valeur moy: {formatCurrency(stats.averageValue)}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">CA réalisé</CardTitle>
-            <Euro className="h-4 w-4 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(stats.acceptedRevenue)}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Devis acceptés
             </p>
           </CardContent>
         </Card>
@@ -724,9 +770,27 @@ export function QuotationManagement() {
                           Envoyer par email
                         </DropdownMenuItem>
                       )}
-                      {quotation.status === 'accepted' && (
+                      {quotation.status === 'sent' && (
+                        <>
+                          <DropdownMenuItem
+                            onClick={() => updateStatusMutation.mutate({ id: quotation.id, status: 'accepted' })}
+                            className="text-green-600"
+                          >
+                            <Check className="mr-2 h-4 w-4" />
+                            Accepter le devis
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => updateStatusMutation.mutate({ id: quotation.id, status: 'rejected' })}
+                            className="text-orange-600"
+                          >
+                            <X className="mr-2 h-4 w-4" />
+                            Refuser le devis
+                          </DropdownMenuItem>
+                        </>
+                      )}
+                      {quotation.status === 'accepted' && !quotation.sales_order_id && (
                         <DropdownMenuItem onClick={() => handleConvertToOrder(quotation)}>
-                          <FileText className="mr-2 h-4 w-4" />
+                          <Package className="mr-2 h-4 w-4" />
                           Convertir en commande
                         </DropdownMenuItem>
                       )}
@@ -764,6 +828,62 @@ export function QuotationManagement() {
               setEditingQuotation(null)
             }}
           />
+        </DialogContent>
+      </Dialog>
+
+      {/* Convert to Order Dialog */}
+      <Dialog open={showConvertDialog} onOpenChange={setShowConvertDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Convertir en commande</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+              <p className="text-sm text-blue-900">
+                <strong>Devis:</strong> {quotationToConvert?.quotation_number}
+              </p>
+              <p className="text-sm text-blue-900 mt-1">
+                <strong>Client:</strong> {quotationToConvert?.contact_name}
+              </p>
+              <p className="text-sm text-blue-900 mt-1">
+                <strong>Montant:</strong> {quotationToConvert && formatCurrency(parseFloat(quotationToConvert.total_amount || quotationToConvert.total_ttc || 0))}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="expected_delivery_date">Date de livraison prévue (optionnel)</Label>
+              <Input
+                id="expected_delivery_date"
+                type="date"
+                value={expectedDeliveryDate}
+                onChange={(e) => setExpectedDeliveryDate(e.target.value)}
+              />
+              <p className="text-xs text-gray-500">
+                Si vous ne spécifiez pas de date, elle pourra être ajoutée plus tard.
+              </p>
+            </div>
+
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <p className="text-sm text-yellow-900">
+                ⚠️ Cette action va déduire automatiquement les produits du stock.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowConvertDialog(false)
+                setQuotationToConvert(null)
+                setExpectedDeliveryDate('')
+              }}
+            >
+              Annuler
+            </Button>
+            <Button onClick={confirmConvertToOrder}>
+              Convertir en commande
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

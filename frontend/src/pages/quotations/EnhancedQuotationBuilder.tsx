@@ -46,6 +46,23 @@ import {
   Truck
 } from 'lucide-react'
 
+// Helper function to get product's main image URL
+const getProductImageUrl = (product: any): string | null => {
+  if (!product.images || !Array.isArray(product.images) || product.images.length === 0) {
+    return null
+  }
+
+  // Find the main image or use the first one
+  const mainImage = product.images.find((img: any) => img.is_main) || product.images[0]
+
+  if (!mainImage || !mainImage.url) {
+    return null
+  }
+
+  // Return the MinIO URL
+  return mainImage.url
+}
+
 interface QuotationBuilderProps {
   quotation?: any
   onSave: (data: any) => void
@@ -77,6 +94,8 @@ interface LineItem {
   cost_price?: number
   notes?: string
   is_optional?: boolean
+  stock_quantity?: number // Available stock for the product
+  image_url?: string // Product image URL from MinIO
 }
 
 interface Section {
@@ -120,8 +139,8 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
     global_discount_value: quotation?.global_discount_value || 0,
     shipping_cost: quotation?.shipping_cost || 0,
     installation_cost: quotation?.installation_cost || 0,
-    tax_rate: quotation?.tax_rate || 20,
-    include_tax: quotation?.include_tax ?? true
+    tax_rate: quotation?.tax_rate ?? 20,
+    include_tax: quotation?.include_tax ?? false  // Default to FALSE - will be set to TRUE when contact type is company
   })
 
   const [sections, setSections] = useState<Section[]>(
@@ -178,25 +197,31 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
 
   // Initialize sections from quotation line_items when editing
   useEffect(() => {
-    if (quotation?.line_items && Array.isArray(quotation.line_items) && quotation.line_items.length > 0) {
+    if (quotation?.line_items && Array.isArray(quotation.line_items) && quotation.line_items.length > 0 && products.length > 0) {
       // Transform flat line_items into sections structure
-      const items = quotation.line_items.map((item: any) => ({
-        id: item.id || Date.now().toString() + Math.random(),
-        product_id: item.product_id,
-        product_name: item.product_name,
-        product_sku: item.product_sku || '',
-        description: item.description || '',
-        quantity: parseFloat(item.quantity) || 1,
-        unit_price: parseFloat(item.unit_price) || 0,
-        discount_percent: parseFloat(item.discount_percent) || 0,
-        discount_amount: parseFloat(item.discount_amount) || 0,
-        tax_rate: parseFloat(item.tax_rate) || 20,
-        tax_amount: parseFloat(item.tax_amount) || 0,
-        line_total: parseFloat(item.line_total) || 0,
-        cost_price: parseFloat(item.cost_price) || 0,
-        notes: item.notes || '',
-        is_optional: item.is_optional || false
-      }))
+      // Match with current products to get fresh stock quantities
+      const items = quotation.line_items.map((item: any) => {
+        const currentProduct = products.find((p: any) => p.id === item.product_id)
+        return {
+          id: item.id || Date.now().toString() + Math.random(),
+          product_id: item.product_id,
+          product_name: item.product_name,
+          product_sku: item.product_sku || '',
+          description: item.description || '',
+          quantity: parseFloat(item.quantity) || 1,
+          unit_price: parseFloat(item.unit_price) || 0,
+          discount_percent: parseFloat(item.discount_percent) || 0,
+          discount_amount: parseFloat(item.discount_amount) || 0,
+          tax_rate: item.tax_rate != null ? parseFloat(item.tax_rate) : 0,  // FIX: Don't default to 20, preserve 0
+          tax_amount: parseFloat(item.tax_amount) || 0,
+          line_total: parseFloat(item.line_total) || 0,
+          cost_price: parseFloat(item.cost_price) || 0,
+          notes: item.notes || '',
+          is_optional: item.is_optional || false,
+          stock_quantity: currentProduct?.stockQuantity || 0,  // Get fresh stock from products
+          image_url: currentProduct ? getProductImageUrl(currentProduct) : undefined // Get image from product
+        }
+      })
 
       setSections([{
         id: '1',
@@ -205,7 +230,7 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
         collapsed: false
       }])
     }
-  }, [quotation])
+  }, [quotation, products])
 
   // Update formData when quotation prop changes (when editing existing quotation)
   useEffect(() => {
@@ -245,7 +270,7 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
         payment_terms: quotation.payment_terms || '30',
         delivery_time: quotation.delivery_terms || '2-4 semaines',
         delivery_address: quotation.delivery_address || '',
-        installation_included: quotation.installation_included || quotation.shipping_method === 'installation' || false,
+        installation_included: quotation.installation_included || quotation.shipping_method === 'installation' || (quotation.installation_cost && quotation.installation_cost > 0) || false,  // FIX: Check installation_cost too
         notes: quotation.notes || '',
         internal_notes: quotation.internal_notes || '',
         terms_conditions: quotation.terms_conditions || getDefaultTerms(),
@@ -253,8 +278,8 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
         global_discount_value: quotation.discount_percent || 0,
         shipping_cost: quotation.shipping_cost || 0,
         installation_cost: quotation.installation_cost || 0,
-        tax_rate: quotation.tax_rate || 20,
-        include_tax: quotation.include_tax ?? true
+        tax_rate: quotation.tax_rate != null ? quotation.tax_rate : (contactDetails?.type === 'individual' ? 0 : 20),  // Preserve tax_rate from quotation
+        include_tax: quotation.include_tax != null ? quotation.include_tax : (contactDetails?.type === 'company')  // Default based on contact type
       })
     }
   }, [quotation, contacts])
@@ -262,10 +287,10 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
   useEffect(() => {
     calculateTotals()
   }, [sections, formData.global_discount_type, formData.global_discount_value,
-      formData.shipping_cost, formData.installation_cost, formData.tax_rate])
+      formData.shipping_cost, formData.installation_cost, formData.tax_rate, formData.include_tax])
 
   const calculateTotals = () => {
-    let items_subtotal = 0
+    let items_subtotal = 0  // Sum of line_totals (after line discounts)
 
     sections.forEach(section => {
       section.items.forEach(item => {
@@ -273,7 +298,7 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
       })
     })
 
-    // Calculate global discount
+    // Calculate global discount (on discounted subtotal)
     let global_discount = 0
     if (formData.global_discount_type === 'percent') {
       global_discount = items_subtotal * (formData.global_discount_value / 100)
@@ -321,7 +346,9 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
       line_total: unitPrice,
       cost_price: product.costPrice || product.cost_price || 0,
       notes: '',
-      is_optional: false
+      is_optional: false,
+      stock_quantity: product.stockQuantity || 0,
+      image_url: getProductImageUrl(product) || undefined
     }
 
     // Recalculate item totals
@@ -448,8 +475,9 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
       ].filter(Boolean).join(', ')
 
       const contactType = contact.customer_type || 'individual'
-      // Set tax rate based on contact type: 0% for individuals, 20% for companies
+      // Set tax rate and include_tax based on contact type
       const defaultTaxRate = contactType === 'individual' ? 0 : 20
+      const defaultIncludeTax = contactType === 'company'  // Only companies have VAT enabled by default
 
       setFormData({
         ...formData,
@@ -467,7 +495,8 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
         },
         payment_terms: contact.payment_terms?.toString() || '30',
         delivery_address: contactAddress,
-        tax_rate: defaultTaxRate
+        tax_rate: defaultTaxRate,
+        include_tax: defaultIncludeTax  // Set include_tax based on contact type
       })
 
       // Apply contact discount and tax rate to all items
@@ -540,10 +569,20 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
       discount_value: formData.global_discount_value,
       shipping_cost: formData.shipping_cost,
       installation_cost: formData.installation_cost,
+      tax_rate: formData.tax_rate,  // CRITICAL: Send global tax rate to backend
+      include_tax: formData.include_tax,  // CRITICAL: Send include_tax flag to backend
       notes: formData.notes,
       internal_notes: formData.internal_notes,
       terms_conditions: formData.terms_conditions
     }
+
+    // DEBUG: Log what's being sent
+    console.log('Quotation Payload:', {
+      shipping_cost: quotationData.shipping_cost,
+      installation_cost: quotationData.installation_cost,
+      installation_included: quotationData.installation_included,
+      include_tax: quotationData.include_tax
+    })
 
     onSave(quotationData)
   }
@@ -554,6 +593,25 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
       currency: 'EUR'
     }).format(amount)
   }
+
+  // Get stock issues for all items
+  const getStockIssues = () => {
+    const issues: { type: 'out' | 'low', item: LineItem }[] = []
+    sections.forEach(section => {
+      section.items.forEach(item => {
+        if (item.product_id && item.stock_quantity !== undefined) {
+          if (item.stock_quantity === 0) {
+            issues.push({ type: 'out', item })
+          } else if (item.stock_quantity < item.quantity) {
+            issues.push({ type: 'low', item })
+          }
+        }
+      })
+    })
+    return issues
+  }
+
+  const stockIssues = getStockIssues()
 
   const filteredProducts = products.filter((p: any) =>
     p.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -738,7 +796,11 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
                       id="installation"
                       checked={formData.installation_included}
                       onCheckedChange={(checked) =>
-                        setFormData({...formData, installation_included: checked})
+                        setFormData({
+                          ...formData,
+                          installation_included: checked,
+                          installation_cost: checked ? formData.installation_cost : 0  // Reset cost when toggled off
+                        })
                       }
                     />
                     <Label htmlFor="installation">
@@ -766,6 +828,37 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
         </TabsContent>
 
         <TabsContent value="items" className="space-y-4 mt-4">
+          {/* Stock Issues Summary */}
+          {stockIssues.length > 0 && (
+            <Card className="border-orange-200 bg-orange-50">
+              <CardContent className="pt-4">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="h-5 w-5 text-orange-600 mt-0.5" />
+                  <div className="flex-1">
+                    <h4 className="font-semibold text-orange-900 mb-2">
+                      Alertes de stock ({stockIssues.length})
+                    </h4>
+                    <div className="space-y-1 text-sm text-orange-800">
+                      {stockIssues.filter(i => i.type === 'out').length > 0 && (
+                        <p>
+                          • <strong>{stockIssues.filter(i => i.type === 'out').length}</strong> article(s) en rupture de stock
+                        </p>
+                      )}
+                      {stockIssues.filter(i => i.type === 'low').length > 0 && (
+                        <p>
+                          • <strong>{stockIssues.filter(i => i.type === 'low').length}</strong> article(s) avec stock insuffisant
+                        </p>
+                      )}
+                      <p className="text-xs mt-2 text-orange-700">
+                        Vérifiez les indicateurs de stock sur chaque article ci-dessous. Contactez le service logistique si nécessaire.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {sections.map((section, sectionIndex) => (
             <Card key={section.id}>
               <CardHeader>
@@ -838,181 +931,146 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
                     <div className="space-y-4">
                       {section.items.map((item) => (
                         <Card key={item.id} className="overflow-hidden">
-                          <div className="p-4">
-                            <div className="flex gap-4">
-                              {/* Product Image */}
-                              {item.image_url && (
-                                <div className="w-20 h-20 bg-gray-100 rounded-lg flex items-center justify-center">
-                                  <Image className="h-8 w-8 text-gray-400" />
-                                </div>
-                              )}
-
-                              {/* Product Details */}
-                              <div className="flex-1 space-y-3">
-                                <div className="flex justify-between items-start">
-                                  <div>
-                                    <h4 className="font-semibold">{item.product_name}</h4>
+                          <div className="p-3">
+                            {/* Compact table-like layout */}
+                            <div className="grid grid-cols-12 gap-3 items-center">
+                              {/* Product Info - 5 columns */}
+                              <div className="col-span-5">
+                                <div className="flex items-start gap-2">
+                                  <div className="w-10 h-10 bg-gray-100 rounded flex-shrink-0 flex items-center justify-center overflow-hidden">
+                                    {item.image_url ? (
+                                      <img
+                                        src={item.image_url}
+                                        alt={item.product_name}
+                                        className="w-full h-full object-cover"
+                                      />
+                                    ) : (
+                                      <Image className="h-5 w-5 text-gray-400" />
+                                    )}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <h4 className="font-medium text-sm truncate">{item.product_name}</h4>
                                     {item.product_sku && (
-                                      <p className="text-sm text-gray-500">SKU: {item.product_sku}</p>
+                                      <p className="text-xs text-gray-500">SKU: {item.product_sku}</p>
                                     )}
                                     {item.description && (
-                                      <p className="text-sm text-gray-600 mt-1">{item.description}</p>
+                                      <p className="text-xs text-gray-600 line-clamp-2">{item.description}</p>
+                                    )}
+                                    {/* Materials inline */}
+                                    {item.is_customizable && item.materials && item.materials.length > 0 && (
+                                      <div className="mt-1">
+                                        <span className="text-xs text-gray-500">
+                                          {`${item.materials[0].materialName} - ${item.materials[0].finishName}`}
+                                          {item.materials.length > 1 && ` +${item.materials.length - 1}`}
+                                        </span>
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="ghost"
+                                          className="h-5 px-1 ml-1"
+                                          onClick={() => {
+                                            setEditingItem(item)
+                                            setShowMaterialDialog(true)
+                                          }}
+                                        >
+                                          <Edit2 className="h-3 w-3" />
+                                        </Button>
+                                      </div>
+                                    )}
+                                    {/* Stock Indicator */}
+                                    {item.product_id && item.stock_quantity !== undefined && (
+                                      <div className="mt-2">
+                                        {item.stock_quantity === 0 ? (
+                                          <Badge variant="destructive" className="text-xs">
+                                            <AlertTriangle className="h-3 w-3 mr-1" />
+                                            Rupture de stock
+                                          </Badge>
+                                        ) : item.stock_quantity < item.quantity ? (
+                                          <Badge variant="outline" className="text-xs bg-orange-50 text-orange-700 border-orange-200">
+                                            <AlertTriangle className="h-3 w-3 mr-1" />
+                                            Stock partiel: {item.stock_quantity} disponible{item.stock_quantity > 1 ? 's' : ''}
+                                          </Badge>
+                                        ) : (
+                                          <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
+                                            <Package className="h-3 w-3 mr-1" />
+                                            En stock: {item.stock_quantity}
+                                          </Badge>
+                                        )}
+                                      </div>
+                                    )}
+                                    {/* Notes inline */}
+                                    {item.notes && (
+                                      <p className="text-xs text-yellow-700 mt-1">
+                                        <Info className="h-3 w-3 inline mr-1" />
+                                        {item.notes}
+                                      </p>
                                     )}
                                   </div>
+                                </div>
+                              </div>
 
-                                  {/* Stock Alert */}
-                                  {item.stock_quantity !== undefined && item.stock_quantity < item.quantity && (
-                                    <Badge variant="destructive" className="ml-2">
-                                      <AlertTriangle className="h-3 w-3 mr-1" />
-                                      Stock insuffisant
-                                    </Badge>
+                              {/* Quantity - 2 columns */}
+                              <div className="col-span-2">
+                                <Label className="text-xs text-gray-500">Qté</Label>
+                                <Input
+                                  type="number"
+                                  min="1"
+                                  value={item.quantity}
+                                  onChange={(e) => handleUpdateLineItem(
+                                    section.id,
+                                    item.id,
+                                    'quantity',
+                                    parseInt(e.target.value) || 1
                                   )}
+                                  className="h-8 text-sm"
+                                />
+                              </div>
+
+                              {/* Unit Price - 2 columns */}
+                              <div className="col-span-2">
+                                <Label className="text-xs text-gray-500">Prix unit.</Label>
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  value={item.unit_price}
+                                  onChange={(e) => handleUpdateLineItem(
+                                    section.id,
+                                    item.id,
+                                    'unit_price',
+                                    parseFloat(e.target.value) || 0
+                                  )}
+                                  className="h-8 text-sm"
+                                />
+                              </div>
+
+                              {/* Total - 2 columns */}
+                              <div className="col-span-2">
+                                <Label className="text-xs text-gray-500">Total</Label>
+                                <div className="h-8 px-2 py-1 border rounded-md bg-gray-50 font-semibold text-sm flex items-center">
+                                  {formatCurrency(item.line_total)}
                                 </div>
+                              </div>
 
-                                {/* Materials */}
-                                {item.is_customizable && item.materials && item.materials.length > 0 && (
-                                  <div className="bg-gray-50 rounded-lg p-3">
-                                    <div className="flex items-center justify-between mb-2">
-                                      <span className="text-sm font-medium flex items-center gap-1">
-                                        <Layers className="h-4 w-4" />
-                                        Matériaux et finitions
-                                      </span>
-                                      <Button
-                                        type="button"
-                                        size="sm"
-                                        variant="ghost"
-                                        onClick={() => {
-                                          setEditingItem(item)
-                                          setShowMaterialDialog(true)
-                                        }}
-                                      >
-                                        <Edit2 className="h-3 w-3" />
-                                      </Button>
-                                    </div>
-                                    <div className="space-y-1">
-                                      {item.materials.slice(0, 2).map((mat: any, idx: number) => (
-                                        <div key={idx} className="text-xs text-gray-600">
-                                          • {mat.materialName} - {mat.finishName}
-                                          {mat.extraCost > 0 && (
-                                            <span className="text-green-600 ml-1">
-                                              (+{formatCurrency(mat.extraCost)})
-                                            </span>
-                                          )}
-                                        </div>
-                                      ))}
-                                      {item.materials.length > 2 && (
-                                        <div className="text-xs text-gray-500">
-                                          +{item.materials.length - 2} autre(s)...
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
-
-                                {/* Pricing Grid */}
-                                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                                  <div>
-                                    <Label className="text-xs">Quantité</Label>
-                                    <Input
-                                      type="number"
-                                      min="1"
-                                      value={item.quantity}
-                                      onChange={(e) => handleUpdateLineItem(
-                                        section.id,
-                                        item.id,
-                                        'quantity',
-                                        parseInt(e.target.value) || 1
-                                      )}
-                                      className="h-8"
-                                    />
-                                  </div>
-                                  <div>
-                                    <Label className="text-xs">Prix unit. (€)</Label>
-                                    <Input
-                                      type="number"
-                                      step="0.01"
-                                      value={item.unit_price}
-                                      onChange={(e) => handleUpdateLineItem(
-                                        section.id,
-                                        item.id,
-                                        'unit_price',
-                                        parseFloat(e.target.value) || 0
-                                      )}
-                                      className="h-8"
-                                    />
-                                  </div>
-                                  <div>
-                                    <Label className="text-xs">Remise (%)</Label>
-                                    <Input
-                                      type="number"
-                                      step="0.01"
-                                      min="0"
-                                      max="100"
-                                      value={item.discount_percent}
-                                      onChange={(e) => handleUpdateLineItem(
-                                        section.id,
-                                        item.id,
-                                        'discount_percent',
-                                        parseFloat(e.target.value) || 0
-                                      )}
-                                      className="h-8"
-                                    />
-                                  </div>
-                                  <div>
-                                    <Label className="text-xs">TVA (%)</Label>
-                                    <Input
-                                      type="number"
-                                      step="0.01"
-                                      value={item.tax_rate}
-                                      onChange={(e) => handleUpdateLineItem(
-                                        section.id,
-                                        item.id,
-                                        'tax_rate',
-                                        parseFloat(e.target.value) || 0
-                                      )}
-                                      className="h-8"
-                                    />
-                                  </div>
-                                  <div>
-                                    <Label className="text-xs">Total</Label>
-                                    <div className="h-8 px-3 py-1 border rounded-md bg-gray-50 font-semibold">
-                                      {formatCurrency(item.line_total)}
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {/* Notes */}
-                                {item.notes && (
-                                  <div className="bg-yellow-50 border border-yellow-200 rounded p-2">
-                                    <p className="text-xs text-yellow-800">
-                                      <Info className="h-3 w-3 inline mr-1" />
-                                      {item.notes}
-                                    </p>
-                                  </div>
-                                )}
-
-                                {/* Actions */}
-                                <div className="flex justify-end gap-2 pt-2 border-t">
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => handleDuplicateLineItem(section.id, item)}
-                                  >
-                                    <Copy className="h-3 w-3 mr-1" />
-                                    Dupliquer
-                                  </Button>
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => handleDeleteLineItem(section.id, item.id)}
-                                    className="text-destructive"
-                                  >
-                                    <Trash2 className="h-3 w-3 mr-1" />
-                                    Supprimer
-                                  </Button>
-                                </div>
+                              {/* Actions - 1 column */}
+                              <div className="col-span-1 flex flex-col gap-1">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => handleDuplicateLineItem(section.id, item)}
+                                  className="h-6 px-2"
+                                >
+                                  <Copy className="h-3 w-3" />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => handleDeleteLineItem(section.id, item.id)}
+                                  className="h-6 px-2 text-destructive"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
                               </div>
                             </div>
                           </div>
@@ -1090,16 +1148,18 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
                 <div className="space-y-2">
                   <Label htmlFor="tax_rate">Taux de TVA (%)</Label>
                   <Select
-                    value={formData.tax_rate.toString()}
+                    value={parseFloat(formData.tax_rate).toString()}
                     onValueChange={(value) => setFormData({
                       ...formData,
                       tax_rate: parseFloat(value)
                     })}
                   >
                     <SelectTrigger>
-                      <SelectValue />
+                      <SelectValue placeholder="Sélectionner le taux de TVA">
+                        {formData.tax_rate}% TVA
+                      </SelectValue>
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent position="popper" sideOffset={5}>
                       <SelectItem value="0">0% (Exonéré)</SelectItem>
                       <SelectItem value="5.5">5.5% (Taux réduit)</SelectItem>
                       <SelectItem value="10">10% (Taux intermédiaire)</SelectItem>
@@ -1186,7 +1246,17 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
               <CardTitle>Conditions et informations</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-2">
+                  <Label htmlFor="validity_date">Date de validité</Label>
+                  <Input
+                    id="validity_date"
+                    type="date"
+                    value={formData.validity_date}
+                    onChange={(e) => setFormData({...formData, validity_date: e.target.value})}
+                  />
+                </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="payment_terms">Conditions de paiement</Label>
                   <Select
@@ -1323,9 +1393,13 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
                         <CardContent className="p-4">
                           <div className="flex justify-between items-start">
                             <div className="flex gap-3">
-                              <div className="w-16 h-16 bg-gray-100 rounded flex items-center justify-center">
-                                {product.image_url ? (
-                                  <img src={product.image_url} alt={product.name} className="w-full h-full object-cover rounded" />
+                              <div className="w-16 h-16 bg-gray-100 rounded flex items-center justify-center overflow-hidden">
+                                {getProductImageUrl(product) ? (
+                                  <img
+                                    src={getProductImageUrl(product)!}
+                                    alt={product.name}
+                                    className="w-full h-full object-cover rounded"
+                                  />
                                 ) : (
                                   <Image className="h-8 w-8 text-gray-400" />
                                 )}

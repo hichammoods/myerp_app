@@ -589,6 +589,7 @@ router.get('/', async (req: Request, res: Response) => {
     const mappedProducts = result.rows.map(row => {
       const basePrice = parseFloat(row.unit_price) || 0;
       const materialCost = parseFloat(row.total_material_cost) || 0;
+
       return {
         id: row.id,
         sku: row.sku,
@@ -599,7 +600,9 @@ router.get('/', async (req: Request, res: Response) => {
         basePrice: basePrice,
         materialCost: materialCost,
         totalPrice: basePrice + materialCost,
-        stockQuantity: row.stock_quantity,
+        stockQuantity: parseFloat(row.stock_quantity) || 0,
+        minStockLevel: parseFloat(row.min_stock_level) || 0,
+        maxStockLevel: parseFloat(row.max_stock_level) || 0,
         weight: row.weight,
         dimensions: {
           length: row.dimensions_length,
@@ -640,6 +643,7 @@ router.post('/', async (req: Request, res: Response) => {
     const {
       sku, name, description, category_id, categoryId,
       base_price, basePrice, dimensions, weight, stock_quantity, stockQuantity,
+      minStockLevel, min_stock_level, maxStockLevel, max_stock_level,
       type, isCustomizable, allowsCustomMaterials, isMadeToOrder, materials, images, leadTime
     } = req.body;
 
@@ -650,6 +654,8 @@ router.post('/', async (req: Request, res: Response) => {
     const finalCategoryId = category_id || categoryId || null;
     const finalPrice = base_price || basePrice;
     const finalStockQty = stock_quantity ?? stockQuantity ?? 0;
+    const finalMinStockLevel = minStockLevel ?? min_stock_level ?? 0;
+    const finalMaxStockLevel = maxStockLevel ?? max_stock_level ?? 0;
     const finalWeight = weight || null;
     const finalAllowsCustom = allowsCustomMaterials ?? isCustomizable ?? true;
     const finalLeadTime = leadTime ? parseInt(leadTime.toString()) : 0;
@@ -680,10 +686,10 @@ router.post('/', async (req: Request, res: Response) => {
     const result = await client.query(
       `INSERT INTO products (
         sku, name, description, category_id, unit_price,
-        weight, stock_quantity, is_active, allows_custom_materials, images,
+        weight, stock_quantity, min_stock_level, max_stock_level, is_active, allows_custom_materials, images,
         dimensions_length, dimensions_width, dimensions_height, lead_time_days,
         created_at, updated_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8, $9, $10, $11, $12, $13, NOW(), NOW())
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, $10, $11, $12, $13, $14, $15, NOW(), NOW())
        RETURNING *`,
       [
         finalSku,
@@ -693,6 +699,8 @@ router.post('/', async (req: Request, res: Response) => {
         finalPrice,
         finalWeight,
         finalStockQty,
+        finalMinStockLevel,
+        finalMaxStockLevel,
         finalAllowsCustom,
         JSON.stringify(images || []),
         finalDimLength,
@@ -776,6 +784,7 @@ router.put('/:id', async (req: Request, res: Response) => {
     const {
       sku, name, description, category_id, categoryId,
       base_price, basePrice, dimensions, weight, stock_quantity, stockQuantity,
+      minStockLevel, min_stock_level, maxStockLevel, max_stock_level,
       type, isCustomizable, allowsCustomMaterials, isMadeToOrder, materials, images, leadTime
     } = req.body;
 
@@ -786,6 +795,8 @@ router.put('/:id', async (req: Request, res: Response) => {
     const finalCategoryId = category_id || categoryId || null;
     const finalPrice = base_price || basePrice;
     const finalStockQty = stock_quantity ?? stockQuantity ?? 0;
+    const finalMinStockLevel = minStockLevel ?? min_stock_level ?? 0;
+    const finalMaxStockLevel = maxStockLevel ?? max_stock_level ?? 0;
     const finalWeight = weight || null;
     const finalAllowsCustom = allowsCustomMaterials ?? isCustomizable ?? true;
     const finalLeadTime = leadTime ? parseInt(leadTime.toString()) : 0;
@@ -830,10 +841,11 @@ router.put('/:id', async (req: Request, res: Response) => {
       `UPDATE products
        SET sku = $1, name = $2, description = $3, category_id = $4,
            unit_price = $5, weight = $6, stock_quantity = $7,
-           allows_custom_materials = $8, images = $9,
-           dimensions_length = $10, dimensions_width = $11, dimensions_height = $12,
-           lead_time_days = $13, updated_at = NOW()
-       WHERE id = $14
+           min_stock_level = $8, max_stock_level = $9,
+           allows_custom_materials = $10, images = $11,
+           dimensions_length = $12, dimensions_width = $13, dimensions_height = $14,
+           lead_time_days = $15, updated_at = NOW()
+       WHERE id = $16
        RETURNING *`,
       [
         finalSku,
@@ -843,6 +855,8 @@ router.put('/:id', async (req: Request, res: Response) => {
         finalPrice,
         finalWeight,
         finalStockQty,
+        finalMinStockLevel,
+        finalMaxStockLevel,
         finalAllowsCustom,
         JSON.stringify(finalImages),
         finalDimLength,

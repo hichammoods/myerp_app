@@ -82,8 +82,7 @@ router.get('/', authenticateToken, [
         c.company_name,
         c.email as contact_email,
         c.phone as contact_phone,
-        COUNT(DISTINCT ql.id) as line_items_count,
-        COALESCE(SUM(ql.quantity * ql.unit_price), 0) as subtotal
+        COUNT(DISTINCT ql.id) as line_items_count
       FROM quotations q
       LEFT JOIN contacts c ON q.contact_id = c.id
       LEFT JOIN quotation_lines ql ON q.id = ql.quotation_id
@@ -276,6 +275,9 @@ router.post('/', authenticateToken, [
       discount_type = 'amount',
       discount_value = 0,
       shipping_cost = 0,
+      installation_cost = 0,
+      tax_rate = 20,
+      include_tax = false,  // Default to FALSE - frontend will send TRUE for companies
       notes,
       terms_conditions,
     } = req.body;
@@ -291,35 +293,40 @@ router.post('/', authenticateToken, [
       // Helper function to round to 2 decimals
       const round = (num: number) => Math.round((num + Number.EPSILON) * 100) / 100;
 
-      // Calculate totals
+      // Calculate totals - CLEAN LOGIC
       let subtotal = 0;
-      let total_tax = 0;
 
+      // Step 1: Calculate line items (always HT - before tax)
       for (const item of line_items) {
         const line_subtotal = round(item.quantity * item.unit_price);
+        let line_discount_amount = 0;
+        let line_discount_percent = 0;
         let line_total = line_subtotal;
 
         // Apply line discount
         if (item.discount_type === 'percent') {
-          line_total = round(line_subtotal - (line_subtotal * item.discount_value / 100));
+          line_discount_percent = item.discount_value || 0;
+          line_discount_amount = round(line_subtotal * line_discount_percent / 100);
+          line_total = round(line_subtotal - line_discount_amount);
         } else if (item.discount_type === 'amount') {
-          line_total = round(line_subtotal - item.discount_value);
+          line_discount_amount = item.discount_value || 0;
+          line_total = round(line_subtotal - line_discount_amount);
         }
 
-        // Calculate tax (use item.tax_rate, default 0 for individuals)
-        const tax_amount = round(line_total * (item.tax_rate || 0) / 100);
-        total_tax += tax_amount;
-        subtotal += line_total;
+        // Calculate tax amount for reference (line-level tax for display)
+        const tax_amount = round(line_total * (item.tax_rate || tax_rate) / 100);
 
-        item.line_total = line_total;
-        item.tax_amount = tax_amount;
+        subtotal += line_total;
+        item.discount_percent = line_discount_percent;
+        item.discount_amount = line_discount_amount;
+        item.line_total = line_total;  // Always HT
+        item.tax_amount = tax_amount;  // Stored for reference
       }
 
-      // Round accumulated totals
+      // Step 2: Round accumulated totals
       subtotal = round(subtotal);
-      total_tax = round(total_tax);
 
-      // Apply global discount
+      // Step 3: Apply global discount
       let discount_amount = 0;
       if (discount_type === 'percent') {
         discount_amount = round(subtotal * discount_value / 100);
@@ -327,22 +334,59 @@ router.post('/', authenticateToken, [
         discount_amount = round(discount_value || 0);
       }
 
-      const total_amount = round(subtotal - discount_amount + total_tax + (shipping_cost || 0));
+      // Step 4: Calculate tax on FINAL amount (after discount + shipping + installation)
+      const subtotal_after_discount = round(subtotal - discount_amount);
+      const base_for_tax = round(subtotal_after_discount + shipping_cost + installation_cost);
+      const total_tax = include_tax ? round(base_for_tax * tax_rate / 100) : 0;
+      const total_amount = round(base_for_tax + total_tax);
+
+      // DEBUG: Log the calculation
+      console.log('CREATE Quotation Calculation:', {
+        subtotal,
+        discount_amount,
+        subtotal_after_discount,
+        shipping_cost,
+        installation_cost,
+        base_for_tax,
+        tax_rate,
+        total_tax,
+        include_tax,
+        total_amount
+      });
 
       // Insert quotation
       const discount_percent = discount_type === 'percent' ? discount_value : 0;
+
+      // DEBUG: Log the exact values being inserted
+      console.log('INSERT VALUES:', {
+        quotation_number,
+        contact_id,
+        expiration_date,
+        subtotal,
+        discount_percent,
+        discount_amount,
+        tax_rate,
+        tax_amount: total_tax,
+        shipping_cost,
+        installation_cost,
+        include_tax,
+        total_amount,
+        notes,
+        terms_conditions
+      });
+
       const quotationResult = await client.query(
         `INSERT INTO quotations (
           quotation_number, contact_id, status, expiration_date,
           subtotal, discount_percent, discount_amount,
-          tax_amount, shipping_cost, total_amount, currency,
+          tax_rate, tax_amount, shipping_cost, installation_cost, include_tax, total_amount, currency,
           notes, terms_conditions
-        ) VALUES ($1, $2, 'draft', $3, $4, $5, $6, $7, $8, $9, 'EUR', $10, $11)
+        ) VALUES ($1, $2, 'draft', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'EUR', $13, $14)
         RETURNING *`,
         [
           quotation_number, contact_id, expiration_date,
           subtotal, discount_percent, discount_amount,
-          total_tax, shipping_cost, total_amount,
+          tax_rate, total_tax, shipping_cost, installation_cost, include_tax, total_amount,
           notes, terms_conditions
         ]
       );
@@ -417,12 +461,16 @@ router.put('/:id', authenticateToken, [
       line_items,
       discount_type = 'percent',
       discount_value = 0,
-      shipping_cost = 0,
-      installation_cost = 0,
+      tax_rate = 20,
+      include_tax = false,  // Default to FALSE - frontend will send TRUE for companies
       notes = '',
       internal_notes = '',
       terms_conditions = ''
     } = req.body;
+
+    // Parse numeric values from request body
+    const shipping_cost = parseFloat(req.body.shipping_cost) || 0;
+    const installation_cost = parseFloat(req.body.installation_cost) || 0;
 
     const result = await db.transaction(async (client) => {
       // Check if quotation exists
@@ -434,31 +482,40 @@ router.put('/:id', authenticateToken, [
       // Helper function to round to 2 decimals
       const round = (num: number) => Math.round((num + Number.EPSILON) * 100) / 100;
 
-      // Calculate totals
+      // Calculate totals - CLEAN LOGIC
       let subtotal = 0;
-      let total_tax = 0;
 
+      // Step 1: Calculate line items (always HT - before tax)
       for (const item of line_items) {
-        const base_total = round(item.quantity * item.unit_price);
-        const line_discount_amount = round(base_total * (item.discount_percent || 0) / 100);
-        const line_subtotal = round(base_total - line_discount_amount);
-        const tax_amount = round(line_subtotal * (item.tax_rate || 0) / 100);
-        // Line total should be HT (before tax), tax is applied at quotation level
-        const line_total = round(line_subtotal);
+        const line_subtotal = round(item.quantity * item.unit_price);
+        let line_discount_amount = 0;
+        let line_discount_percent = 0;
+        let line_total = line_subtotal;
 
-        total_tax += tax_amount;
-        subtotal += line_subtotal;
+        // Apply line discount
+        if (item.discount_type === 'percent') {
+          line_discount_percent = item.discount_value || 0;
+          line_discount_amount = round(line_subtotal * line_discount_percent / 100);
+          line_total = round(line_subtotal - line_discount_amount);
+        } else if (item.discount_type === 'amount') {
+          line_discount_amount = item.discount_value || 0;
+          line_total = round(line_subtotal - line_discount_amount);
+        }
 
+        // Calculate tax amount for reference (line-level tax for display)
+        const tax_amount = round(line_total * (item.tax_rate || tax_rate) / 100);
+
+        subtotal += line_total;
+        item.discount_percent = line_discount_percent;
         item.discount_amount = line_discount_amount;
-        item.tax_amount = tax_amount;
-        item.line_total = line_total;
+        item.line_total = line_total;  // Always HT
+        item.tax_amount = tax_amount;  // Stored for reference
       }
 
-      // Round accumulated totals
+      // Step 2: Round accumulated totals
       subtotal = round(subtotal);
-      total_tax = round(total_tax);
 
-      // Apply global discount
+      // Step 3: Apply global discount
       let discount_amount = 0;
       if (discount_type === 'percent') {
         discount_amount = round(subtotal * discount_value / 100);
@@ -466,10 +523,63 @@ router.put('/:id', authenticateToken, [
         discount_amount = round(discount_value || 0);
       }
 
-      const total_amount = round(subtotal - discount_amount + total_tax + (shipping_cost || 0));
+      // Step 4: Calculate tax on FINAL amount (after discount + shipping + installation)
+      const subtotal_after_discount = round(subtotal - discount_amount);
+      const base_for_tax = round(subtotal_after_discount + shipping_cost + installation_cost);
+      const total_tax = include_tax ? round(base_for_tax * tax_rate / 100) : 0;
+      const total_amount = round(base_for_tax + total_tax);
+
+      // DEBUG: Log the calculation
+      console.log('UPDATE Quotation Calculation:', {
+        quotation_id: id,
+        subtotal,
+        discount_amount,
+        subtotal_after_discount,
+        shipping_cost,
+        installation_cost,
+        tax_rate,
+        base_for_tax,
+        total_tax,
+        include_tax,
+        total_amount
+      });
 
       // Update quotation
       const discount_percent = discount_type === 'percent' ? discount_value : 0;
+
+      // DEBUG: Log the exact values being updated
+      const paramsArray = [
+        contact_id, expiration_date, delivery_date, delivery_address,
+        payment_terms, delivery_terms, shipping_method, installation_included,
+        subtotal, discount_percent, discount_amount,
+        tax_rate, total_tax, shipping_cost, installation_cost, include_tax, total_amount,
+        notes, internal_notes, terms_conditions, id
+      ];
+
+      console.log('UPDATE VALUES:', {
+        id,
+        contact_id,
+        expiration_date,
+        delivery_date,
+        delivery_address,
+        payment_terms,
+        delivery_terms,
+        shipping_method,
+        installation_included,
+        subtotal,
+        discount_percent,
+        discount_amount,
+        tax_rate,
+        tax_amount: total_tax,
+        shipping_cost,
+        installation_cost,
+        include_tax,
+        total_amount,
+        notes,
+        internal_notes,
+        terms_conditions
+      });
+
       const quotationResult = await client.query(
         `UPDATE quotations SET
           contact_id = $1,
@@ -483,26 +593,32 @@ router.put('/:id', authenticateToken, [
           subtotal = $9,
           discount_percent = $10,
           discount_amount = $11,
-          tax_amount = $12,
-          shipping_cost = $13,
-          installation_cost = $14,
-          total_amount = $15,
-          notes = $16,
-          internal_notes = $17,
-          terms_conditions = $18,
+          tax_rate = $12,
+          tax_amount = $13,
+          shipping_cost = $14,
+          installation_cost = $15,
+          include_tax = $16,
+          total_amount = $17,
+          notes = $18,
+          internal_notes = $19,
+          terms_conditions = $20,
           updated_at = CURRENT_TIMESTAMP
-        WHERE id = $19
+        WHERE id = $21
         RETURNING *`,
-        [
-          contact_id, expiration_date, delivery_date, delivery_address,
-          payment_terms, delivery_terms, shipping_method, installation_included,
-          subtotal, discount_percent, discount_amount,
-          total_tax, shipping_cost, installation_cost, total_amount,
-          notes, internal_notes, terms_conditions, id
-        ]
+        paramsArray
       );
 
       const quotation = quotationResult.rows[0];
+
+      // DEBUG: Log what was actually saved to database
+      console.log('RETURNED FROM DB:', {
+        id: quotation.id,
+        subtotal: quotation.subtotal,
+        shipping_cost: quotation.shipping_cost,
+        installation_cost: quotation.installation_cost,
+        tax_amount: quotation.tax_amount,
+        total_amount: quotation.total_amount
+      });
 
       // Delete existing line items
       await client.query('DELETE FROM quotation_lines WHERE quotation_id = $1', [id]);

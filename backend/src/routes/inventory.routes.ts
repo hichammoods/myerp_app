@@ -40,9 +40,8 @@ router.get('/stock', async (req: Request, res: Response) => {
         p.name,
         p.sku as code,
         CAST(p.stock_quantity as DOUBLE PRECISION) as current_stock,
-        CAST(10 as DOUBLE PRECISION) as min_stock,
-        CAST(100 as DOUBLE PRECISION) as max_stock,
-        CAST(50 as DOUBLE PRECISION) as optimal_stock,
+        CAST(COALESCE(p.min_stock_level, 0) as DOUBLE PRECISION) as min_stock,
+        CAST(COALESCE(p.max_stock_level, 0) as DOUBLE PRECISION) as max_stock,
         'pièce' as unit,
         CAST(p.unit_price as DOUBLE PRECISION) as value_per_unit,
         CAST((p.stock_quantity * p.unit_price) as DOUBLE PRECISION) as total_value,
@@ -51,9 +50,8 @@ router.get('/stock', async (req: Request, res: Response) => {
         NULL as supplier,
         NULL as location,
         CASE
-          WHEN p.stock_quantity <= 5 THEN 'critical'
-          WHEN p.stock_quantity <= 10 THEN 'low'
-          WHEN p.stock_quantity > 100 THEN 'overstocked'
+          WHEN p.min_stock_level > 0 AND p.stock_quantity <= p.min_stock_level THEN 'low'
+          WHEN p.max_stock_level > 0 AND p.stock_quantity > p.max_stock_level THEN 'overstocked'
           ELSE 'normal'
         END as status
       FROM products p
@@ -61,7 +59,7 @@ router.get('/stock', async (req: Request, res: Response) => {
       WHERE p.is_active = true
     `;
 
-    // Get materials stock
+    // Get materials stock (if materials table exists with proper schema)
     let materialsQuery = `
       SELECT
         m.id,
@@ -71,7 +69,6 @@ router.get('/stock', async (req: Request, res: Response) => {
         CAST(m.stock_quantity as DOUBLE PRECISION) as current_stock,
         CAST(COALESCE(m.min_stock_level, 10) as DOUBLE PRECISION) as min_stock,
         CAST(500 as DOUBLE PRECISION) as max_stock,
-        CAST(300 as DOUBLE PRECISION) as optimal_stock,
         m.unit_of_measure as unit,
         CAST(COALESCE(m.cost_per_unit, 0) as DOUBLE PRECISION) as value_per_unit,
         CAST((m.stock_quantity * COALESCE(m.cost_per_unit, 0)) as DOUBLE PRECISION) as total_value,
@@ -80,7 +77,6 @@ router.get('/stock', async (req: Request, res: Response) => {
         m.supplier,
         NULL as location,
         CASE
-          WHEN m.stock_quantity <= m.min_stock_level * 0.5 THEN 'critical'
           WHEN m.stock_quantity <= m.min_stock_level THEN 'low'
           WHEN m.stock_quantity > 500 THEN 'overstocked'
           ELSE 'normal'
@@ -279,7 +275,7 @@ router.post('/movements', async (req: Request, res: Response) => {
       [
         item_id,
         movementType,
-        Math.abs(adjustmentQty),
+        adjustmentQty,  // Keep the sign: positive for 'in', negative for 'out'
         currentStock,
         newStock,
         reason,
@@ -319,43 +315,18 @@ router.get('/alerts', async (req: Request, res: Response) => {
 
     const query = `
       WITH stock_alerts AS (
-        -- Critical product stock
-        SELECT
-          p.id as item_id,
-          p.name as item_name,
-          'critical' as type,
-          'Stock critique: ' || p.stock_quantity || ' pièces restantes (min: 10)' as message,
-          p.updated_at as created_at,
-          false as resolved
-        FROM products p
-        WHERE p.is_active = true AND p.stock_quantity <= 5
-
-        UNION ALL
-
         -- Low product stock
         SELECT
           p.id as item_id,
           p.name as item_name,
           'low' as type,
-          'Stock faible: ' || p.stock_quantity || ' pièces restantes (min: 10)' as message,
+          'Stock faible: ' || p.stock_quantity || ' pièces restantes (min: ' || COALESCE(p.min_stock_level, 0) || ')' as message,
           p.updated_at as created_at,
           false as resolved
         FROM products p
-        WHERE p.is_active = true AND p.stock_quantity > 5 AND p.stock_quantity <= 10
-
-        UNION ALL
-
-        -- Critical material stock
-        SELECT
-          m.id as item_id,
-          m.name as item_name,
-          'critical' as type,
-          'Stock critique: ' || m.stock_quantity || ' ' || m.unit_of_measure || ' restants (min: ' || m.min_stock_level || ')' as message,
-          m.updated_at as created_at,
-          false as resolved
-        FROM materials m
-        WHERE m.is_active = true
-          AND m.stock_quantity <= (m.min_stock_level * 0.5)
+        WHERE p.is_active = true
+          AND p.min_stock_level > 0
+          AND p.stock_quantity <= p.min_stock_level
 
         UNION ALL
 
@@ -369,7 +340,6 @@ router.get('/alerts', async (req: Request, res: Response) => {
           false as resolved
         FROM materials m
         WHERE m.is_active = true
-          AND m.stock_quantity > (m.min_stock_level * 0.5)
           AND m.stock_quantity <= m.min_stock_level
 
         UNION ALL
@@ -379,11 +349,13 @@ router.get('/alerts', async (req: Request, res: Response) => {
           p.id as item_id,
           p.name as item_name,
           'overstock' as type,
-          'Surstock: ' || p.stock_quantity || ' pièces en stock (max recommandé: 100)' as message,
+          'Surstock: ' || p.stock_quantity || ' pièces en stock (max recommandé: ' || COALESCE(p.max_stock_level, 0) || ')' as message,
           p.updated_at as created_at,
           false as resolved
         FROM products p
-        WHERE p.is_active = true AND p.stock_quantity > 100
+        WHERE p.is_active = true
+          AND p.max_stock_level > 0
+          AND p.stock_quantity > p.max_stock_level
 
         UNION ALL
 
@@ -396,7 +368,8 @@ router.get('/alerts', async (req: Request, res: Response) => {
           m.updated_at as created_at,
           false as resolved
         FROM materials m
-        WHERE m.is_active = true AND m.stock_quantity > 500
+        WHERE m.is_active = true
+          AND m.stock_quantity > 500
       )
       SELECT
         gen_random_uuid() as id,
@@ -409,10 +382,9 @@ router.get('/alerts', async (req: Request, res: Response) => {
       FROM stock_alerts
       ORDER BY
         CASE type
-          WHEN 'critical' THEN 1
-          WHEN 'low' THEN 2
-          WHEN 'overstock' THEN 3
-          ELSE 4
+          WHEN 'low' THEN 1
+          WHEN 'overstock' THEN 2
+          ELSE 3
         END,
         created_at DESC
     `;
@@ -444,8 +416,8 @@ router.get('/stats', async (req: Request, res: Response) => {
       SELECT
         (SELECT COUNT(*) FROM products WHERE is_active = true) as total_products,
         (SELECT COUNT(*) FROM materials WHERE is_active = true) as total_materials,
-        (SELECT COUNT(*) FROM products WHERE is_active = true AND stock_quantity <= 5) as critical_products,
-        (SELECT COUNT(*) FROM materials WHERE is_active = true AND stock_quantity <= min_stock_level * 0.5) as critical_materials,
+        (SELECT COUNT(*) FROM products WHERE is_active = true AND min_stock_level > 0 AND stock_quantity <= min_stock_level) as low_products,
+        (SELECT COUNT(*) FROM materials WHERE is_active = true AND stock_quantity <= min_stock_level) as low_materials,
         (SELECT COALESCE(SUM(stock_quantity * unit_price), 0) FROM products WHERE is_active = true) as products_value,
         (SELECT COALESCE(SUM(stock_quantity * cost_per_unit), 0) FROM materials WHERE is_active = true) as materials_value,
         (SELECT COUNT(*) FROM inventory_movements WHERE DATE(created_at) = CURRENT_DATE) as today_movements
@@ -460,7 +432,7 @@ router.get('/stats', async (req: Request, res: Response) => {
         total_items: parseInt(stats.total_products) + parseInt(stats.total_materials),
         total_products: parseInt(stats.total_products),
         total_materials: parseInt(stats.total_materials),
-        critical_alerts: parseInt(stats.critical_products) + parseInt(stats.critical_materials),
+        critical_alerts: parseInt(stats.low_products) + parseInt(stats.low_materials),
         total_value: parseFloat(stats.products_value) + parseFloat(stats.materials_value),
         products_value: parseFloat(stats.products_value),
         materials_value: parseFloat(stats.materials_value),

@@ -32,8 +32,34 @@ router.get('/', authenticateToken, [
       SELECT
         c.*,
         COUNT(DISTINCT q.id) FILTER (WHERE q.id IS NOT NULL) as quotation_count,
-        COALESCE(SUM(CASE WHEN q.status = 'accepted' THEN q.total_amount ELSE 0 END), 0) as total_revenue,
-        COALESCE(SUM(CASE WHEN q.status IN ('sent', 'draft') THEN q.total_amount ELSE 0 END), 0) as potential_revenue
+        COALESCE((
+          SELECT SUM(inv.total_amount)
+          FROM invoices inv
+          JOIN sales_orders so ON inv.sales_order_id = so.id
+          WHERE so.contact_id = c.id
+            AND inv.status = 'payee'
+            AND so.status != 'annule'
+        ), 0) as total_revenue,
+        COALESCE(SUM(DISTINCT CASE WHEN q.status IN ('sent', 'draft') THEN q.total_amount ELSE 0 END), 0) as potential_revenue,
+        CASE
+          WHEN EXISTS (
+            SELECT 1 FROM quotations q2
+            WHERE q2.contact_id = c.id
+              AND q2.status IN ('draft', 'sent')
+          ) THEN true
+          WHEN EXISTS (
+            SELECT 1 FROM sales_orders so2
+            WHERE so2.contact_id = c.id
+              AND so2.status IN ('en_cours', 'en_preparation', 'expedie', 'livre')
+          ) THEN true
+          WHEN EXISTS (
+            SELECT 1 FROM invoices inv2
+            JOIN sales_orders so3 ON inv2.sales_order_id = so3.id
+            WHERE so3.contact_id = c.id
+              AND inv2.status IN ('brouillon', 'envoyee', 'en_retard')
+          ) THEN true
+          ELSE false
+        END as is_active
       FROM contacts c
       LEFT JOIN quotations q ON c.id = q.contact_id
       WHERE 1=1
@@ -86,6 +112,35 @@ router.get('/', authenticateToken, [
 
     const result = await db.query(queryStr, params);
 
+    // Debug: Check Youssef and Salma
+    for (const contact of result.rows) {
+      if ((contact.first_name === 'Youssef' || contact.first_name === 'Salma') && contact.is_active) {
+        logger.info(`DEBUG: ${contact.first_name} ${contact.last_name} is showing as ACTIVE`, {
+          contact_id: contact.id,
+          is_active: contact.is_active
+        });
+
+        // Get detailed breakdown
+        const debugQuery = `
+          SELECT 'quotation' as type, q.quotation_number as number, q.status, q.created_at
+          FROM quotations q
+          WHERE q.contact_id = $1
+          UNION ALL
+          SELECT 'sales_order' as type, so.order_number as number, so.status, so.created_at
+          FROM sales_orders so
+          WHERE so.contact_id = $1
+          UNION ALL
+          SELECT 'invoice' as type, inv.invoice_number as number, inv.status, inv.created_at
+          FROM invoices inv
+          JOIN sales_orders so ON inv.sales_order_id = so.id
+          WHERE so.contact_id = $1
+          ORDER BY created_at DESC
+        `;
+        const debugResult = await db.query(debugQuery, [contact.id]);
+        logger.info(`DEBUG: ${contact.first_name}'s activity:`, debugResult.rows);
+      }
+    }
+
     const response = {
       contacts: result.rows,
       pagination: {
@@ -112,7 +167,34 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
       SELECT
         c.*,
         COUNT(DISTINCT q.id) as quotation_count,
-        SUM(CASE WHEN q.status = 'accepted' THEN q.total_amount ELSE 0 END) as total_revenue,
+        COALESCE((
+          SELECT SUM(inv.total_amount)
+          FROM invoices inv
+          JOIN sales_orders so ON inv.sales_order_id = so.id
+          WHERE so.contact_id = c.id
+            AND inv.status = 'payee'
+            AND so.status != 'annule'
+        ), 0) as total_revenue,
+        COALESCE(SUM(DISTINCT CASE WHEN q.status IN ('sent', 'draft') THEN q.total_amount ELSE 0 END), 0) as potential_revenue,
+        CASE
+          WHEN EXISTS (
+            SELECT 1 FROM quotations q2
+            WHERE q2.contact_id = c.id
+              AND q2.status IN ('draft', 'sent')
+          ) THEN true
+          WHEN EXISTS (
+            SELECT 1 FROM sales_orders so2
+            WHERE so2.contact_id = c.id
+              AND so2.status IN ('en_cours', 'en_preparation', 'expedie', 'livre')
+          ) THEN true
+          WHEN EXISTS (
+            SELECT 1 FROM invoices inv2
+            JOIN sales_orders so3 ON inv2.sales_order_id = so3.id
+            WHERE so3.contact_id = c.id
+              AND inv2.status IN ('brouillon', 'envoyee', 'en_retard')
+          ) THEN true
+          ELSE false
+        END as is_active,
         json_agg(
           DISTINCT jsonb_build_object(
             'id', q.id,
@@ -432,6 +514,45 @@ router.post('/import', authenticateToken, [
   } catch (error) {
     logger.error('Error importing contacts:', error);
     res.status(500).json({ error: 'Failed to import contacts' });
+  }
+});
+
+// GET contacts statistics
+router.get('/stats/overview', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const stats = await db.query(`
+      SELECT
+        COUNT(*) as total_contacts,
+        COUNT(CASE
+          WHEN EXISTS (
+            SELECT 1 FROM quotations q2
+            WHERE q2.contact_id = c.id
+              AND q2.status IN ('draft', 'sent')
+          )
+          OR EXISTS (
+            SELECT 1 FROM sales_orders so2
+            WHERE so2.contact_id = c.id
+              AND so2.status IN ('en_cours', 'en_preparation', 'expedie', 'livre')
+          )
+          OR EXISTS (
+            SELECT 1 FROM invoices inv2
+            JOIN sales_orders so3 ON inv2.sales_order_id = so3.id
+            WHERE so3.contact_id = c.id
+              AND inv2.status IN ('brouillon', 'envoyee', 'en_retard')
+          )
+          THEN 1
+        END) as active_contacts,
+        COUNT(CASE WHEN type = 'client' THEN 1 END) as clients_count,
+        COUNT(CASE WHEN type = 'supplier' THEN 1 END) as suppliers_count,
+        COUNT(CASE WHEN created_at >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as new_this_month
+      FROM contacts c
+      WHERE c.deleted_at IS NULL
+    `);
+
+    res.json(stats.rows[0]);
+  } catch (error) {
+    logger.error('Error fetching contact statistics:', error);
+    res.status(500).json({ error: 'Failed to fetch statistics' });
   }
 });
 

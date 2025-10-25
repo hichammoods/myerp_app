@@ -325,16 +325,22 @@ export function ProductManagement() {
         <DataTableColumnHeader column={column} title="Stock" />
       ),
       cell: ({ row }: any) => {
-        const stock = row.getValue('stockQuantity') as number
+        const stock = parseFloat(row.getValue('stockQuantity')) || 0
+        const product = row.original
+        const minStock = parseFloat(product.minStockLevel) || 0
+        const maxStock = parseFloat(product.maxStockLevel) || 0
         let statusBadge = null
         let stockColor = ''
 
         if (stock === 0) {
           statusBadge = <Badge variant="destructive" className="text-xs">Rupture</Badge>
           stockColor = 'text-red-600 font-medium'
-        } else if (stock < 10) {
+        } else if (minStock > 0 && stock <= minStock) {
           statusBadge = <Badge variant="outline" className="text-xs border-orange-500 text-orange-600">Faible</Badge>
           stockColor = 'text-orange-600 font-medium'
+        } else if (maxStock > 0 && stock > maxStock) {
+          statusBadge = <Badge variant="outline" className="text-xs border-blue-500 text-blue-600">Surstock</Badge>
+          stockColor = 'text-blue-600 font-medium'
         } else {
           statusBadge = <Badge variant="outline" className="text-xs border-green-500 text-green-600">En stock</Badge>
           stockColor = 'text-green-600 font-medium'

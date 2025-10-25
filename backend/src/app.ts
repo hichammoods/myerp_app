@@ -16,6 +16,8 @@ import contactRouter from './routes/contacts';
 // import productRouter from './routes/products';
 import productRouter from './routes/products-simple'; // Using simplified version without pooling
 import quotationRouter from './routes/quotations';
+import salesOrderRouter from './routes/sales-orders';
+import invoiceRouter from './routes/invoices';
 import settingsRouter from './routes/settings';
 import inventoryRouter from './routes/inventory.routes';
 import testRouter from './routes/test-simple'; // Ultra-simple test routes
@@ -83,6 +85,8 @@ export class App {
     this.express.use('/api/contacts', contactRouter);
     this.express.use('/api/products', productRouter);
     this.express.use('/api/quotations', quotationRouter);
+    this.express.use('/api/sales-orders', salesOrderRouter);
+    this.express.use('/api/invoices', invoiceRouter);
     this.express.use('/api/settings', settingsRouter);
     this.express.use('/api/inventory', inventoryRouter);
 

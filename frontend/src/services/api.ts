@@ -268,6 +268,11 @@ export const contactsApi = {
     const response = await api.delete(`/contacts/${contactId}/addresses/${addressId}`);
     return response.data;
   },
+
+  getStats: async () => {
+    const response = await api.get('/contacts/stats/overview');
+    return response.data;
+  },
 };
 
 // Quotations API
@@ -386,6 +391,118 @@ export const inventoryApi = {
 
   getStats: async () => {
     const response = await api.get('/inventory/stats');
+    return response.data;
+  },
+};
+
+// Sales Orders API
+export const salesOrdersApi = {
+  getAll: async (params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    status?: string;
+    contact_id?: string;
+    from_date?: string;
+    to_date?: string;
+  }) => {
+    const response = await api.get('/sales-orders', { params });
+    return response.data;
+  },
+
+  getById: async (id: string) => {
+    const response = await api.get(`/sales-orders/${id}`);
+    return response.data;
+  },
+
+  create: async (data: {
+    quotation_id: string;
+    expected_delivery_date?: string;
+    delivery_address?: string;
+    notes?: string;
+  }) => {
+    const response = await api.post('/sales-orders', data);
+    return response.data;
+  },
+
+  updateStatus: async (id: string, data: {
+    status: 'en_cours' | 'en_preparation' | 'expedie' | 'livre' | 'termine' | 'annule';
+    shipped_date?: string;
+    delivered_date?: string;
+    tracking_number?: string;
+  }) => {
+    const response = await api.patch(`/sales-orders/${id}/status`, data);
+    return response.data;
+  },
+
+  cancel: async (id: string) => {
+    const response = await api.post(`/sales-orders/${id}/cancel`);
+    return response.data;
+  },
+
+  delete: async (id: string) => {
+    const response = await api.delete(`/sales-orders/${id}`);
+    return response.data;
+  },
+
+  getStats: async () => {
+    const response = await api.get('/sales-orders/stats/overview');
+    return response.data;
+  },
+};
+
+// Invoices API
+export const invoicesApi = {
+  getAll: async (params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    status?: string;
+    contact_id?: string;
+    from_date?: string;
+    to_date?: string;
+  }) => {
+    const response = await api.get('/invoices', { params });
+    return response.data;
+  },
+
+  getById: async (id: string) => {
+    const response = await api.get(`/invoices/${id}`);
+    return response.data;
+  },
+
+  create: async (data: {
+    sales_order_id: string;
+    due_date?: string;
+    payment_terms?: string;
+    notes?: string;
+  }) => {
+    const response = await api.post('/invoices', data);
+    return response.data;
+  },
+
+  updateStatus: async (id: string, status: 'brouillon' | 'envoyee' | 'payee' | 'en_retard' | 'annulee') => {
+    const response = await api.patch(`/invoices/${id}/status`, { status });
+    return response.data;
+  },
+
+  recordPayment: async (id: string, data: {
+    amount_paid: number;
+    payment_method?: 'virement' | 'cheque' | 'carte' | 'especes';
+    payment_reference?: string;
+    payment_date?: string;
+  }) => {
+    const response = await api.patch(`/invoices/${id}/payment`, data);
+    return response.data;
+  },
+
+  delete: async (id: string) => {
+    const response = await api.delete(`/invoices/${id}`);
+    return response.data;
+  },
+
+  getStats: async () => {
+    const response = await api.get('/invoices/stats/overview');
     return response.data;
   },
 };

@@ -424,11 +424,15 @@ export function ContactManagement() {
                     </div>
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
-                        <h4 className="font-semibold">{contact.company_name}</h4>
+                        <h4 className="font-semibold">
+                          {contact.company_name || `${contact.first_name} ${contact.last_name}`}
+                        </h4>
                         <Badge variant={getTypeBadgeVariant(contact.type)}>
                           {getTypeLabel(contact.type)}
                         </Badge>
-                        {!contact.is_active && (
+                        {contact.is_active ? (
+                          <Badge className="bg-green-500 text-white hover:bg-green-600">Actif</Badge>
+                        ) : (
                           <Badge variant="destructive">Inactif</Badge>
                         )}
                         {contact.tags && Array.isArray(contact.tags) && contact.tags.map((tag: string) => (
@@ -436,10 +440,12 @@ export function ContactManagement() {
                         ))}
                       </div>
                       <div className="flex items-center gap-4 text-sm text-gray-600 dark:text-gray-400">
-                        <span className="flex items-center gap-1">
-                          <User className="h-3 w-3" />
-                          {contact.first_name} {contact.last_name}
-                        </span>
+                        {contact.company_name && (
+                          <span className="flex items-center gap-1">
+                            <User className="h-3 w-3" />
+                            {contact.first_name} {contact.last_name}
+                          </span>
+                        )}
                         <span className="flex items-center gap-1">
                           <Mail className="h-3 w-3" />
                           {contact.email}
@@ -562,7 +568,7 @@ export function ContactManagement() {
                       {getTypeLabel(viewingContact.type)}
                     </Badge>
                     {viewingContact.is_active ? (
-                      <Badge variant="success">Actif</Badge>
+                      <Badge className="bg-green-500 text-white hover:bg-green-600">Actif</Badge>
                     ) : (
                       <Badge variant="destructive">Inactif</Badge>
                     )}
@@ -575,12 +581,12 @@ export function ContactManagement() {
                   <div className="text-right space-y-1">
                     <div>
                       <div className="text-2xl font-bold text-green-600">{formatCurrency(viewingContact.total_revenue || 0)}</div>
-                      <div className="text-xs text-muted-foreground">CA réalisé (accepté)</div>
+                      <div className="text-xs text-muted-foreground">CA réalisé (factures payées)</div>
                     </div>
                     {viewingContact.potential_revenue > 0 && (
                       <div>
                         <div className="text-lg font-semibold">{formatCurrency(viewingContact.potential_revenue || 0)}</div>
-                        <div className="text-xs text-muted-foreground">CA potentiel (envoyé/brouillon)</div>
+                        <div className="text-xs text-muted-foreground">CA potentiel (devis envoyés)</div>
                       </div>
                     )}
                     <div className="text-sm mt-2">{viewingContact.quotation_count || 0} devis au total</div>

@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { inventoryApi } from '@/services/api'
+import { inventoryApi, productsApi } from '@/services/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -81,7 +81,6 @@ interface StockItem {
   current_stock: number
   min_stock: number
   max_stock: number
-  optimal_stock: number
   unit: string
   value_per_unit: number
   total_value: number
@@ -133,9 +132,13 @@ export function StockManagement() {
   const [searchTerm, setSearchTerm] = useState('')
   const [filterCategory, setFilterCategory] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
+  const [filterType, setFilterType] = useState<'all' | 'product' | 'material'>('all')
   const [selectedItem, setSelectedItem] = useState<StockItem | null>(null)
   const [showAdjustmentDialog, setShowAdjustmentDialog] = useState(false)
-  const [showAlertConfig, setShowAlertConfig] = useState(false)
+  const [showStockLevelsDialog, setShowStockLevelsDialog] = useState(false)
+  const [stockLevels, setStockLevels] = useState({ minStock: 0, maxStock: 0 })
+  const [sortColumn, setSortColumn] = useState<'name' | 'category' | 'current_stock' | 'total_value' | 'status' | null>(null)
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const [adjustment, setAdjustment] = useState<StockAdjustment>({
     item_id: '',
     adjustment_type: 'add',
@@ -195,6 +198,33 @@ export function StockManagement() {
     },
   })
 
+  const updateStockLevelsMutation = useMutation({
+    mutationFn: async ({ productId, minStock, maxStock }: { productId: string, minStock: number, maxStock: number }) => {
+      // First fetch the current product data
+      const product = await productsApi.getById(productId)
+      // Then update with all required fields plus new stock levels
+      return productsApi.update(productId, {
+        ...product,
+        min_stock_level: minStock,
+        max_stock_level: maxStock
+      })
+    },
+    onSuccess: async () => {
+      toast.success('Seuils de stock mis à jour avec succès')
+      // Invalidate and refetch all related queries
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['stock'] }),
+        queryClient.invalidateQueries({ queryKey: ['alerts'] }),
+        queryClient.invalidateQueries({ queryKey: ['inventory-stats'] }),
+        queryClient.invalidateQueries({ queryKey: ['products'] })
+      ])
+      setShowStockLevelsDialog(false)
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.error || 'Erreur lors de la mise à jour des seuils')
+    },
+  })
+
   // Extract data from responses with fallbacks
   const stockItems: StockItem[] = stockData?.items || []
   const stockMovements: StockMovement[] = movementsData?.movements?.map((m: any) => ({
@@ -235,8 +265,34 @@ export function StockManagement() {
     { name: 'Surstock', value: 15, color: '#6366f1' },
   ]
 
-  // Filtered items - now handled by the API query with filters
-  const filteredItems = stockItems
+  // Filtered and sorted items - API handles search/category/status, we filter by type and sort client-side
+  const filteredItems = useMemo(() => {
+    let items = filterType === 'all' ? stockItems : stockItems.filter(item => item.type === filterType)
+
+    // Apply sorting
+    if (sortColumn) {
+      items = [...items].sort((a, b) => {
+        let aValue: any = a[sortColumn]
+        let bValue: any = b[sortColumn]
+
+        // Handle null/undefined values
+        if (aValue === null || aValue === undefined) aValue = ''
+        if (bValue === null || bValue === undefined) bValue = ''
+
+        // Compare values
+        if (typeof aValue === 'string') {
+          aValue = aValue.toLowerCase()
+          bValue = bValue.toLowerCase()
+        }
+
+        if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1
+        if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1
+        return 0
+      })
+    }
+
+    return items
+  }, [stockItems, filterType, sortColumn, sortDirection])
 
   // Unresolved alerts count
   const unresolvedAlertsCount = stockAlerts.filter(a => !a.resolved).length
@@ -269,6 +325,20 @@ export function StockManagement() {
       default:
         return <Package className="h-4 w-4" />
     }
+  }
+
+  const handleSort = (column: 'name' | 'category' | 'current_stock' | 'total_value' | 'status') => {
+    if (sortColumn === column) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortColumn(column)
+      setSortDirection('asc')
+    }
+  }
+
+  const getSortIcon = (column: 'name' | 'category' | 'current_stock' | 'total_value' | 'status') => {
+    if (sortColumn !== column) return <ArrowUpDown className="h-4 w-4 opacity-50" />
+    return sortDirection === 'asc' ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />
   }
 
   const handleStockAdjustment = () => {
@@ -309,21 +379,10 @@ export function StockManagement() {
         <div className="flex gap-2">
           <Button
             variant="outline"
-            onClick={() => setShowAlertConfig(true)}
-          >
-            <Settings className="h-4 w-4 mr-2" />
-            Configuration
-          </Button>
-          <Button
-            variant="outline"
             onClick={exportStockReport}
           >
             <FileDown className="h-4 w-4 mr-2" />
             Exporter
-          </Button>
-          <Button>
-            <Plus className="h-4 w-4 mr-2" />
-            Nouvelle Entrée
           </Button>
         </div>
       </div>
@@ -557,18 +616,6 @@ export function StockManagement() {
                     />
                   </div>
                 </div>
-                <Select value={filterCategory} onValueChange={setFilterCategory}>
-                  <SelectTrigger className="w-[200px]">
-                    <SelectValue placeholder="Catégorie" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Toutes catégories</SelectItem>
-                    <SelectItem value="Tables">Tables</SelectItem>
-                    <SelectItem value="Chaises">Chaises</SelectItem>
-                    <SelectItem value="Bois">Bois</SelectItem>
-                    <SelectItem value="Tissus">Tissus</SelectItem>
-                  </SelectContent>
-                </Select>
                 <Select value={filterStatus} onValueChange={setFilterStatus}>
                   <SelectTrigger className="w-[200px]">
                     <SelectValue placeholder="Statut" />
@@ -581,6 +628,16 @@ export function StockManagement() {
                     <SelectItem value="overstocked">Surstock</SelectItem>
                   </SelectContent>
                 </Select>
+                <Select value={filterType} onValueChange={(value: 'all' | 'product' | 'material') => setFilterType(value)}>
+                  <SelectTrigger className="w-[200px]">
+                    <SelectValue placeholder="Type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Tous types</SelectItem>
+                    <SelectItem value="product">Produits</SelectItem>
+                    <SelectItem value="material">Matériaux</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </CardContent>
           </Card>
@@ -591,12 +648,62 @@ export function StockManagement() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Article</TableHead>
-                    <TableHead>Catégorie</TableHead>
-                    <TableHead>Stock Actuel</TableHead>
-                    <TableHead>Min/Optimal/Max</TableHead>
-                    <TableHead>Valeur</TableHead>
-                    <TableHead>Statut</TableHead>
+                    <TableHead>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2 hover:bg-gray-100"
+                        onClick={() => handleSort('name')}
+                      >
+                        Article
+                        {getSortIcon('name')}
+                      </Button>
+                    </TableHead>
+                    <TableHead>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2 hover:bg-gray-100"
+                        onClick={() => handleSort('category')}
+                      >
+                        Catégorie
+                        {getSortIcon('category')}
+                      </Button>
+                    </TableHead>
+                    <TableHead>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2 hover:bg-gray-100"
+                        onClick={() => handleSort('current_stock')}
+                      >
+                        Stock Actuel
+                        {getSortIcon('current_stock')}
+                      </Button>
+                    </TableHead>
+                    <TableHead>Min/Max</TableHead>
+                    <TableHead>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2 hover:bg-gray-100"
+                        onClick={() => handleSort('total_value')}
+                      >
+                        Valeur
+                        {getSortIcon('total_value')}
+                      </Button>
+                    </TableHead>
+                    <TableHead>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2 hover:bg-gray-100"
+                        onClick={() => handleSort('status')}
+                      >
+                        Statut
+                        {getSortIcon('status')}
+                      </Button>
+                    </TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -605,7 +712,18 @@ export function StockManagement() {
                     <TableRow key={item.id}>
                       <TableCell>
                         <div>
-                          <p className="font-medium">{item.name}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium">{item.name}</p>
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                "text-xs",
+                                item.type === 'product' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-amber-50 text-amber-700 border-amber-200'
+                              )}
+                            >
+                              {item.type === 'product' ? 'Produit' : 'Matériau'}
+                            </Badge>
+                          </div>
                           <p className="text-sm text-gray-500">{item.code}</p>
                         </div>
                       </TableCell>
@@ -620,7 +738,6 @@ export function StockManagement() {
                       <TableCell>
                         <div className="text-sm">
                           <span className="text-red-500">{item.min_stock}</span> /
-                          <span className="text-green-500"> {item.optimal_stock}</span> /
                           <span className="text-blue-500"> {item.max_stock}</span>
                         </div>
                       </TableCell>
@@ -632,16 +749,31 @@ export function StockManagement() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => {
-                            setSelectedItem(item)
-                            setShowAdjustmentDialog(true)
-                          }}
-                        >
-                          <RefreshCw className="h-4 w-4" />
-                        </Button>
+                        <div className="flex gap-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              setSelectedItem(item)
+                              setShowAdjustmentDialog(true)
+                            }}
+                            title="Ajuster le stock"
+                          >
+                            <RefreshCw className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              setSelectedItem(item)
+                              setStockLevels({ minStock: item.min_stock, maxStock: item.max_stock })
+                              setShowStockLevelsDialog(true)
+                            }}
+                            title="Configurer les seuils"
+                          >
+                            <Settings className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -874,89 +1006,84 @@ export function StockManagement() {
         </DialogContent>
       </Dialog>
 
-      {/* Alert Configuration Dialog */}
-      <Dialog open={showAlertConfig} onOpenChange={setShowAlertConfig}>
-        <DialogContent className="max-w-2xl">
+      {/* Stock Levels Configuration Dialog */}
+      <Dialog open={showStockLevelsDialog} onOpenChange={setShowStockLevelsDialog}>
+        <DialogContent>
           <DialogHeader>
-            <DialogTitle>Configuration des Alertes</DialogTitle>
+            <DialogTitle>Configurer les Seuils de Stock</DialogTitle>
           </DialogHeader>
-          <div className="space-y-6">
-            <div>
-              <h3 className="font-medium mb-3">Seuils d'Alerte par Défaut</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label>Stock Critique (%)</Label>
-                  <Input type="number" defaultValue="20" min="0" max="100" />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Alerte quand le stock est inférieur à X% du minimum
-                  </p>
-                </div>
-                <div>
-                  <Label>Stock Faible (%)</Label>
-                  <Input type="number" defaultValue="50" min="0" max="100" />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Alerte quand le stock est inférieur à X% de l'optimal
-                  </p>
-                </div>
-                <div>
-                  <Label>Surstock (%)</Label>
-                  <Input type="number" defaultValue="120" min="100" max="200" />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Alerte quand le stock dépasse X% du maximum
-                  </p>
-                </div>
-                <div>
-                  <Label>Délai d'Expiration (jours)</Label>
-                  <Input type="number" defaultValue="30" min="1" />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Alerte X jours avant expiration
-                  </p>
-                </div>
-              </div>
+          <div className="space-y-4 pt-4">
+            <div className="space-y-2">
+              <Label htmlFor="product-name">Produit</Label>
+              <Input
+                id="product-name"
+                value={selectedItem?.name || ''}
+                disabled
+                className="bg-gray-50"
+              />
             </div>
 
-            <div>
-              <h3 className="font-medium mb-3">Notifications</h3>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-medium">Alertes par Email</p>
-                    <p className="text-sm text-gray-500">
-                      Recevoir les alertes critiques par email
-                    </p>
-                  </div>
-                  <Button variant="outline" size="sm">
-                    <Bell className="h-4 w-4 mr-2" />
-                    Configurer
-                  </Button>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-medium">Rapport Hebdomadaire</p>
-                    <p className="text-sm text-gray-500">
-                      Recevoir un résumé hebdomadaire des stocks
-                    </p>
-                  </div>
-                  <Button variant="outline" size="sm">
-                    <Bell className="h-4 w-4 mr-2" />
-                    Configurer
-                  </Button>
-                </div>
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="current-stock">Stock actuel</Label>
+              <Input
+                id="current-stock"
+                value={`${selectedItem?.current_stock || 0} ${selectedItem?.unit || ''}`}
+                disabled
+                className="bg-gray-50"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="min-stock">Stock minimum</Label>
+              <Input
+                id="min-stock"
+                type="number"
+                value={stockLevels.minStock}
+                onChange={(e) =>
+                  setStockLevels({ ...stockLevels, minStock: parseInt(e.target.value) || 0 })
+                }
+                placeholder="ex: 5"
+              />
+              <p className="text-xs text-gray-500">
+                Alerte si le stock descend en dessous de ce seuil
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="max-stock">Stock maximum</Label>
+              <Input
+                id="max-stock"
+                type="number"
+                value={stockLevels.maxStock}
+                onChange={(e) =>
+                  setStockLevels({ ...stockLevels, maxStock: parseInt(e.target.value) || 0 })
+                }
+                placeholder="ex: 50"
+              />
+              <p className="text-xs text-gray-500">
+                Stock cible pour les réapprovisionnements
+              </p>
             </div>
 
             <div className="flex justify-end gap-2">
               <Button
                 variant="outline"
-                onClick={() => setShowAlertConfig(false)}
+                onClick={() => setShowStockLevelsDialog(false)}
               >
                 Annuler
               </Button>
-              <Button onClick={() => {
-                toast.success('Configuration sauvegardée')
-                setShowAlertConfig(false)
-              }}>
-                Sauvegarder
+              <Button
+                onClick={() => {
+                  if (selectedItem) {
+                    updateStockLevelsMutation.mutate({
+                      productId: selectedItem.id,
+                      minStock: stockLevels.minStock,
+                      maxStock: stockLevels.maxStock
+                    })
+                  }
+                }}
+              >
+                Enregistrer
               </Button>
             </div>
           </div>
