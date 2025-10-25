@@ -302,7 +302,10 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
   }
 
   const handleAddProduct = (product: any, customOptions?: any) => {
-    const unitPrice = parseFloat(product.basePrice || product.unit_price) || 0
+    // Use totalPrice (includes finish costs) from catalog, fallback to basePrice or unit_price
+    const unitPrice = parseFloat(product.totalPrice || product.basePrice || product.unit_price) || 0
+    // Set tax rate based on contact type: 0% for individuals, 20% for companies
+    const defaultTaxRate = formData.contact_details?.type === 'individual' ? 0 : 20
     const newItem: LineItem = {
       id: Date.now().toString(),
       product_id: product.id,
@@ -313,7 +316,7 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
       unit_price: unitPrice,
       discount_percent: formData.contact_details?.discount_rate || 0,
       discount_amount: 0,
-      tax_rate: product.taxRate || product.tax_rate || 20,
+      tax_rate: defaultTaxRate,
       tax_amount: 0,
       line_total: unitPrice,
       cost_price: product.costPrice || product.cost_price || 0,
@@ -376,9 +379,10 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
 
     const subtotal = baseTotal - item.discount_amount
 
-    // Calculate tax
+    // Store tax rate for reference but don't apply to line_total
+    // Line items should be HT (before tax), tax is applied at quotation level
     item.tax_amount = subtotal * (taxRate / 100)
-    item.line_total = subtotal + item.tax_amount
+    item.line_total = subtotal  // HT total (before tax)
   }
 
   const handleUpdateLineItem = (sectionId: string, itemId: string, field: string, value: any) => {
@@ -443,6 +447,10 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
         contact.address_zip
       ].filter(Boolean).join(', ')
 
+      const contactType = contact.customer_type || 'individual'
+      // Set tax rate based on contact type: 0% for individuals, 20% for companies
+      const defaultTaxRate = contactType === 'individual' ? 0 : 20
+
       setFormData({
         ...formData,
         contact_id: contactId,
@@ -455,26 +463,26 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
           tax_id: contact.tax_id || '',
           payment_terms: contact.payment_terms?.toString() || '30',
           discount_rate: contact.discount_rate || 0,
-          type: contact.customer_type || 'individual'
+          type: contactType
         },
         payment_terms: contact.payment_terms?.toString() || '30',
-        delivery_address: contactAddress
+        delivery_address: contactAddress,
+        tax_rate: defaultTaxRate
       })
 
-      // Apply contact discount to all items
-      if (contact.discount_rate && contact.discount_rate > 0) {
-        setSections(sections.map(section => ({
-          ...section,
-          items: section.items.map(item => {
-            const updatedItem = {
-              ...item,
-              discount_percent: contact.discount_rate
-            }
-            recalculateLineItem(updatedItem)
-            return updatedItem
-          })
-        })))
-      }
+      // Apply contact discount and tax rate to all items
+      setSections(sections.map(section => ({
+        ...section,
+        items: section.items.map(item => {
+          const updatedItem = {
+            ...item,
+            discount_percent: contact.discount_rate || item.discount_percent,
+            tax_rate: defaultTaxRate
+          }
+          recalculateLineItem(updatedItem)
+          return updatedItem
+        })
+      })))
     }
   }
 
@@ -1326,7 +1334,7 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
                                 <h4 className="font-semibold">{product.name}</h4>
                                 <p className="text-sm text-gray-500">SKU: {product.sku}</p>
                                 <div className="flex items-center gap-4 mt-2">
-                                  <span className="font-medium">{formatCurrency(parseFloat(product.basePrice || product.unit_price || 0))}</span>
+                                  <span className="font-medium">{formatCurrency(parseFloat(product.totalPrice || product.basePrice || product.unit_price || 0))}</span>
                                   {(product.stock_quantity || 0) > 0 ? (
                                     <Badge variant="success">En stock ({product.stock_quantity})</Badge>
                                   ) : (
