@@ -279,6 +279,10 @@ export function SalesOrderManagement() {
         installationCost: parseFloat(fullOrder.installation_cost) || 0,
         totalTax: parseFloat(fullOrder.tax_amount) || 0,
         total: parseFloat(fullOrder.total_amount),
+        downPaymentAmount: fullOrder.down_payment_amount ? parseFloat(fullOrder.down_payment_amount) : undefined,
+        downPaymentMethod: fullOrder.down_payment_method || undefined,
+        downPaymentDate: fullOrder.down_payment_date ? new Date(fullOrder.down_payment_date) : undefined,
+        downPaymentNotes: fullOrder.down_payment_notes || undefined,
         notes: fullOrder.notes || undefined,
         deliveryAddress: fullOrder.delivery_address || undefined,
         status: fullOrder.status,
@@ -647,6 +651,9 @@ export function SalesOrderManagement() {
                     {selectedOrder.delivered_date && (
                       <p><strong>Livré le:</strong> {formatDate(selectedOrder.delivered_date)}</p>
                     )}
+                    {selectedOrder.created_by && (
+                      <p className="pt-2 border-t"><strong>Créé par:</strong> <span className="text-blue-600">{selectedOrder.created_by}</span></p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -694,8 +701,45 @@ export function SalesOrderManagement() {
                           <td colSpan={3} className="text-right p-2">Total TTC:</td>
                           <td className="text-right p-2">{formatCurrency(parseFloat(selectedOrder.total_amount))}</td>
                         </tr>
+                        {parseFloat(selectedOrder.down_payment_amount || 0) > 0 && (
+                          <>
+                            <tr className="bg-green-50">
+                              <td colSpan={3} className="text-right p-2 text-green-700">Acompte versé:</td>
+                              <td className="text-right p-2 text-green-700">-{formatCurrency(parseFloat(selectedOrder.down_payment_amount))}</td>
+                            </tr>
+                            <tr className="font-bold bg-gray-100">
+                              <td colSpan={3} className="text-right p-2">Solde restant:</td>
+                              <td className="text-right p-2">{formatCurrency(parseFloat(selectedOrder.total_amount) - parseFloat(selectedOrder.down_payment_amount))}</td>
+                            </tr>
+                          </>
+                        )}
                       </tfoot>
                     </table>
+                  </div>
+                </div>
+              )}
+
+              {parseFloat(selectedOrder.down_payment_amount || 0) > 0 && (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                  <h4 className="font-semibold mb-2 text-green-900">💰 Acompte versé</h4>
+                  <div className="text-sm space-y-1">
+                    <p><strong>Montant:</strong> {formatCurrency(parseFloat(selectedOrder.down_payment_amount))}</p>
+                    {selectedOrder.down_payment_method && (
+                      <p><strong>Mode de paiement:</strong> {
+                        selectedOrder.down_payment_method === 'especes' ? 'Espèces' :
+                        selectedOrder.down_payment_method === 'carte' ? 'Carte bancaire' :
+                        selectedOrder.down_payment_method === 'virement' ? 'Virement' :
+                        selectedOrder.down_payment_method === 'cheque' ? 'Chèque' :
+                        selectedOrder.down_payment_method
+                      }</p>
+                    )}
+                    {selectedOrder.down_payment_date && (
+                      <p><strong>Date:</strong> {formatDate(selectedOrder.down_payment_date)}</p>
+                    )}
+                    {selectedOrder.down_payment_notes && (
+                      <p><strong>Notes:</strong> {selectedOrder.down_payment_notes}</p>
+                    )}
+                    <p className="mt-2 text-green-800"><strong>Solde à payer:</strong> {formatCurrency(parseFloat(selectedOrder.total_amount) - parseFloat(selectedOrder.down_payment_amount))}</p>
                   </div>
                 </div>
               )}

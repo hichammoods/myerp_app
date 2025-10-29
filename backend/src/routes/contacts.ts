@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../database/connection';
 import { logger } from '../utils/logger';
-import { authenticateToken } from '../middleware/auth';
+import { authenticateToken, authorizeRole } from '../middleware/auth';
 import { body, validationResult, query } from 'express-validator';
 
 const router = Router();
@@ -59,7 +59,7 @@ router.get('/', authenticateToken, [
               AND inv2.status IN ('brouillon', 'envoyee', 'en_retard')
           ) THEN true
           ELSE false
-        END as is_active
+        END as has_active_business
       FROM contacts c
       LEFT JOIN quotations q ON c.id = q.contact_id
       WHERE 1=1
@@ -194,7 +194,7 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
               AND inv2.status IN ('brouillon', 'envoyee', 'en_retard')
           ) THEN true
           ELSE false
-        END as is_active,
+        END as has_active_business,
         json_agg(
           DISTINCT jsonb_build_object(
             'id', q.id,
@@ -225,13 +225,13 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
 
 // CREATE new contact
 router.post('/', authenticateToken, [
-  body('first_name').notEmpty().isString(),
-  body('last_name').notEmpty().isString(),
-  body('email').optional().isEmail(),
+  body('first_name').optional().isString(),
+  body('last_name').optional().isString(),
+  body('email').optional({ checkFalsy: true }).isEmail(),
   body('type').optional().isIn(['client', 'supplier', 'partner', 'other']),
   body('customer_type').optional().isIn(['individual', 'company']),
-  body('phone').optional().isString(),
-  body('mobile').optional().isString(),
+  body('phone').optional({ checkFalsy: true }).isString(),
+  body('mobile').optional({ checkFalsy: true }).isString(),
   body('company_name').optional().isString(),
   body('job_title').optional().isString(),
   body('address_street').optional().isString(),
@@ -248,6 +248,7 @@ router.post('/', authenticateToken, [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      logger.error('Validation errors:', errors.array());
       return res.status(400).json({ errors: errors.array() });
     }
 
@@ -273,6 +274,31 @@ router.post('/', authenticateToken, [
       tags = [],
       assigned_to,
     } = req.body;
+
+    logger.info('Contact creation data:', {
+      first_name,
+      last_name,
+      email: email || 'EMPTY',
+      phone: phone || 'EMPTY',
+      mobile: mobile || 'EMPTY',
+      company_name: company_name || 'EMPTY'
+    });
+
+    // Custom validation: Either company_name OR (first_name AND last_name) is required
+    if (!company_name && (!first_name || !last_name)) {
+      logger.error('Failed validation: Missing company_name or first_name/last_name');
+      return res.status(400).json({
+        error: 'Either company_name or both first_name and last_name are required'
+      });
+    }
+
+    // At least one contact method is required (email, phone, or mobile)
+    if (!email && !phone && !mobile) {
+      logger.error('Failed validation: No contact method provided');
+      return res.status(400).json({
+        error: 'At least one contact method (email, phone, or mobile) is required'
+      });
+    }
 
     // Check if email already exists (only if provided)
     if (email) {
@@ -377,8 +403,8 @@ router.put('/:id', authenticateToken, [
   }
 });
 
-// DELETE contact (soft delete)
-router.delete('/:id', authenticateToken, async (req: Request, res: Response) => {
+// DELETE contact (soft delete - admin only)
+router.delete('/:id', authenticateToken, authorizeRole('admin'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 

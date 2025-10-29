@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { Client } from 'pg';
 import { logger } from '../utils/logger';
+import { authenticateToken, authorizeRole } from '../middleware/auth';
 
 const router = Router();
 
@@ -183,8 +184,8 @@ router.get('/movements', async (req: Request, res: Response) => {
   }
 });
 
-// POST stock adjustment
-router.post('/movements', async (req: Request, res: Response) => {
+// POST stock adjustment (admin and inventory_manager)
+router.post('/movements', authenticateToken, authorizeRole('admin', 'inventory_manager'), async (req: Request, res: Response) => {
   let client;
   try {
     const { item_id, item_type, adjustment_type, quantity, reason, notes } = req.body;
@@ -210,7 +211,7 @@ router.post('/movements', async (req: Request, res: Response) => {
       if (result.rows.length === 0) {
         throw new Error('Product not found');
       }
-      currentStock = result.rows[0].stock_quantity || 0;
+      currentStock = parseFloat(result.rows[0].stock_quantity) || 0;
     } else if (item_type === 'material') {
       const result = await client.query(
         'SELECT stock_quantity FROM materials WHERE id = $1',

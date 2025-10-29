@@ -89,12 +89,31 @@ export const authenticateToken = async (
     }
 
     // Verify token
-    jwt.verify(token, JWT_SECRET, (err: any, decoded: any) => {
+    jwt.verify(token, JWT_SECRET, async (err: any, decoded: any) => {
       if (err) {
         if (err.name === 'TokenExpiredError') {
           return res.status(401).json({ error: 'Token expired' });
         }
         return res.status(403).json({ error: 'Invalid token' });
+      }
+
+      // Check if user is suspended or deleted
+      try {
+        const userCheck = await db.query(
+          'SELECT is_active, suspended FROM users WHERE id = $1',
+          [decoded.id]
+        );
+
+        if (userCheck.rows.length === 0 || !userCheck.rows[0].is_active) {
+          return res.status(403).json({ error: 'User account not found or deleted' });
+        }
+
+        if (userCheck.rows[0].suspended) {
+          return res.status(403).json({ error: 'User account is suspended' });
+        }
+      } catch (dbError) {
+        logger.error('Error checking user status:', dbError);
+        // Continue if DB check fails to avoid blocking valid users
       }
 
       req.user = decoded;
@@ -141,12 +160,12 @@ export const refreshAccessToken = async (
 
       // Get user from database
       const result = await db.query(
-        'SELECT id, email, role, first_name, last_name FROM users WHERE id = $1 AND status = $2',
-        [decoded.id, 'active']
+        'SELECT id, email, role, first_name, last_name FROM users WHERE id = $1',
+        [decoded.id]
       );
 
       if (result.rows.length === 0) {
-        return res.status(404).json({ error: 'User not found or inactive' });
+        return res.status(404).json({ error: 'User not found' });
       }
 
       const user = result.rows[0];

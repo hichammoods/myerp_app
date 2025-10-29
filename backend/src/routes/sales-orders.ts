@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { db } from '../database/connection';
 import { logger } from '../utils/logger';
 import { redisClient } from '../database/redis';
-import { authenticateToken } from '../middleware/auth';
+import { authenticateToken, authorizeRole } from '../middleware/auth';
 import { body, validationResult, query } from 'express-validator';
 
 const router = Router();
@@ -178,6 +178,8 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
         c.address_zip as contact_postal_code,
         c.address_country as contact_country,
         q.quotation_number,
+        u.first_name || ' ' || u.last_name as created_by,
+        u.email as created_by_email,
         i.invoice_number,
         json_agg(
           jsonb_build_object(
@@ -198,10 +200,11 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
       FROM sales_orders so
       LEFT JOIN contacts c ON so.contact_id = c.id
       LEFT JOIN quotations q ON so.quotation_id = q.id
+      LEFT JOIN users u ON q.sales_rep_id = u.id
       LEFT JOIN invoices i ON so.invoice_id = i.id
       LEFT JOIN sales_order_items soi ON so.id = soi.sales_order_id
       WHERE so.id = $1
-      GROUP BY so.id, c.id, q.id, i.id
+      GROUP BY so.id, c.id, q.id, u.id, i.id
     `;
 
     const result = await db.query(query, [id]);
@@ -226,6 +229,10 @@ router.post('/', authenticateToken, [
   body('expected_delivery_date').optional().isISO8601(),
   body('delivery_address').optional().isString(),
   body('notes').optional().isString(),
+  body('down_payment_amount').optional().isNumeric().withMessage('Down payment must be a number'),
+  body('down_payment_method').optional().isIn(['especes', 'carte', 'virement', 'cheque']).withMessage('Invalid payment method'),
+  body('down_payment_date').optional().isISO8601(),
+  body('down_payment_notes').optional().isString(),
 ], async (req: Request, res: Response) => {
   try {
     const errors = validationResult(req);
@@ -238,6 +245,10 @@ router.post('/', authenticateToken, [
       expected_delivery_date,
       delivery_address,
       notes,
+      down_payment_amount,
+      down_payment_method,
+      down_payment_date,
+      down_payment_notes,
     } = req.body;
 
     const result = await db.transaction(async (client) => {
@@ -300,8 +311,9 @@ router.post('/', authenticateToken, [
           quotation_id, contact_id, order_date, expected_delivery_date,
           status, subtotal, discount_amount, tax_amount,
           shipping_cost, installation_cost, total_amount,
-          delivery_address, notes, payment_terms, delivery_terms
-        ) VALUES ($1, $2, CURRENT_DATE, $3, 'en_cours', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+          delivery_address, notes, payment_terms, delivery_terms,
+          down_payment_amount, down_payment_method, down_payment_date, down_payment_notes
+        ) VALUES ($1, $2, CURRENT_DATE, $3, 'en_cours', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
         RETURNING *`,
         [
           quotation_id,
@@ -317,6 +329,10 @@ router.post('/', authenticateToken, [
           notes || quotation.notes,
           quotation.payment_terms || '30 jours',
           quotation.delivery_terms || '2-4 semaines',
+          down_payment_amount || 0,
+          down_payment_method || null,
+          down_payment_date || null,
+          down_payment_notes || null,
         ]
       );
 
@@ -574,7 +590,7 @@ router.post('/:id/cancel', authenticateToken, async (req: Request, res: Response
 });
 
 // DELETE sales order (admin only - should restore stock)
-router.delete('/:id', authenticateToken, async (req: Request, res: Response) => {
+router.delete('/:id', authenticateToken, authorizeRole('admin'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 

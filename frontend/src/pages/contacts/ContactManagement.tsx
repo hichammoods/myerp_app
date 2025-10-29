@@ -33,7 +33,9 @@ import {
   Clock,
   Package,
   TrendingUp,
-  Loader2
+  Loader2,
+  Archive,
+  ArchiveRestore
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -62,7 +64,7 @@ export function ContactManagement() {
   const [searchInput, setSearchInput] = useState('')  // User input (not debounced)
   const [searchTerm, setSearchTerm] = useState('')     // Debounced search term
   const [filterType, setFilterType] = useState('all')
-  const [filterStatus, setFilterStatus] = useState('all')
+  const [filterStatus, setFilterStatus] = useState('not_archived')  // Default to non-archived contacts
 
   // Get auth token
   const token = localStorage.getItem('access_token')
@@ -83,9 +85,15 @@ export function ContactManagement() {
       const params = new URLSearchParams()
       if (searchTerm) params.append('search', searchTerm)
       if (filterType !== 'all') params.append('type', filterType)
-      // Fix: Backend expects is_active as boolean, not status
-      if (filterStatus === 'active') params.append('is_active', 'true')
-      if (filterStatus === 'inactive') params.append('is_active', 'false')
+
+      // Handle filter status - backend only understands is_active filter
+      // We'll filter by has_active_business on the frontend
+      if (filterStatus === 'not_archived') {
+        params.append('is_active', 'true')
+      } else if (filterStatus === 'archived') {
+        params.append('is_active', 'false')
+      }
+      // For 'all', 'has_business', 'no_business' - fetch all and filter on frontend
 
       const response = await fetch(`${API_URL}/contacts?${params.toString()}`, {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {},
@@ -161,7 +169,7 @@ export function ContactManagement() {
     },
   })
 
-  // Delete contact mutation
+  // Delete contact mutation (archive)
   const deleteContactMutation = useMutation({
     mutationFn: async (id: string) => {
       const response = await fetch(`${API_URL}/contacts/${id}`, {
@@ -178,15 +186,56 @@ export function ContactManagement() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['contacts'] })
-      toast.success('Contact supprimé avec succès')
+      toast.success('Contact archivé avec succès')
     },
     onError: (error: any) => {
-      toast.error(error.message || 'Erreur lors de la suppression du contact')
+      toast.error(error.message || 'Erreur lors de l\'archivage du contact')
     },
   })
 
-  // Get contacts from API response - already filtered by backend
-  const contacts = contactsData?.contacts || []
+  // Restore contact mutation (unarchive)
+  const restoreContactMutation = useMutation({
+    mutationFn: async (contact: any) => {
+      // Only send the necessary fields, excluding calculated fields and timestamps
+      const { has_active_business, quotation_count, total_revenue, potential_revenue, created_at, updated_at, ...contactData } = contact
+
+      const response = await fetch(`${API_URL}/contacts/${contact.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ ...contactData, is_active: true }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to restore contact')
+      }
+
+      return response.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['contacts'] })
+      toast.success('Contact désarchivé avec succès')
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Erreur lors de la restauration du contact')
+    },
+  })
+
+  // Get contacts from API response and apply frontend filters
+  const allContacts = contactsData?.contacts || []
+
+  // Apply frontend filters for business activity
+  const contacts = useMemo(() => {
+    if (filterStatus === 'has_business') {
+      return allContacts.filter((c: any) => c.has_active_business === true)
+    } else if (filterStatus === 'no_business') {
+      return allContacts.filter((c: any) => c.has_active_business === false && c.is_active === true)
+    }
+    return allContacts
+  }, [allContacts, filterStatus])
 
   const handleSaveContact = (data: any) => {
     if (editingContact) {
@@ -207,8 +256,14 @@ export function ContactManagement() {
   }
 
   const handleDeleteContact = (id: string) => {
-    if (confirm('Êtes-vous sûr de vouloir supprimer ce contact ?')) {
+    if (confirm('Êtes-vous sûr de vouloir archiver ce contact ?')) {
       deleteContactMutation.mutate(id)
+    }
+  }
+
+  const handleRestoreContact = (contact: any) => {
+    if (confirm('Êtes-vous sûr de vouloir désarchiver ce contact ?')) {
+      restoreContactMutation.mutate(contact)
     }
   }
 
@@ -284,14 +339,6 @@ export function ContactManagement() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={handleImport}>
-            <Upload className="mr-2 h-4 w-4" />
-            Importer
-          </Button>
-          <Button variant="outline" onClick={handleExport}>
-            <Download className="mr-2 h-4 w-4" />
-            Exporter
-          </Button>
           <Button onClick={() => {
             setEditingContact(null)
             setShowForm(true)
@@ -331,13 +378,15 @@ export function ContactManagement() {
               </SelectContent>
             </Select>
             <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger className="w-[150px]">
+              <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="Statut" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Tous les statuts</SelectItem>
-                <SelectItem value="active">Actifs</SelectItem>
-                <SelectItem value="inactive">Inactifs</SelectItem>
+                <SelectItem value="all">Tous</SelectItem>
+                <SelectItem value="has_business">Actifs</SelectItem>
+                <SelectItem value="no_business">Inactifs</SelectItem>
+                <SelectItem value="not_archived">Non archivés</SelectItem>
+                <SelectItem value="archived">Archivés</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -364,7 +413,7 @@ export function ContactManagement() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {isLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : contacts.filter((c: any) => c.type === 'client' && c.is_active === true).length}
+              {isLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : contacts.filter((c: any) => c.type === 'client' && c.has_active_business === true).length}
             </div>
           </CardContent>
         </Card>
@@ -430,10 +479,12 @@ export function ContactManagement() {
                         <Badge variant={getTypeBadgeVariant(contact.type)}>
                           {getTypeLabel(contact.type)}
                         </Badge>
-                        {contact.is_active ? (
+                        {!contact.is_active ? (
+                          <Badge variant="destructive">Archivé</Badge>
+                        ) : contact.has_active_business ? (
                           <Badge className="bg-green-500 text-white hover:bg-green-600">Actif</Badge>
                         ) : (
-                          <Badge variant="destructive">Inactif</Badge>
+                          <Badge variant="secondary">Inactif</Badge>
                         )}
                         {contact.tags && Array.isArray(contact.tags) && contact.tags.map((tag: string) => (
                           <Badge key={tag} variant="secondary">{tag}</Badge>
@@ -500,13 +551,23 @@ export function ContactManagement() {
                         Historique
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        onClick={() => handleDeleteContact(contact.id)}
-                        className="text-red-600"
-                      >
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        Supprimer
-                      </DropdownMenuItem>
+                      {contact.is_active ? (
+                        <DropdownMenuItem
+                          onClick={() => handleDeleteContact(contact.id)}
+                          className="text-orange-600"
+                        >
+                          <Archive className="mr-2 h-4 w-4" />
+                          Archiver
+                        </DropdownMenuItem>
+                      ) : (
+                        <DropdownMenuItem
+                          onClick={() => handleRestoreContact(contact)}
+                          className="text-green-600"
+                        >
+                          <ArchiveRestore className="mr-2 h-4 w-4" />
+                          Désarchiver
+                        </DropdownMenuItem>
+                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
@@ -567,10 +628,12 @@ export function ContactManagement() {
                     <Badge variant={getTypeBadgeVariant(viewingContact.type)}>
                       {getTypeLabel(viewingContact.type)}
                     </Badge>
-                    {viewingContact.is_active ? (
+                    {!viewingContact.is_active ? (
+                      <Badge variant="destructive">Archivé</Badge>
+                    ) : viewingContact.has_active_business ? (
                       <Badge className="bg-green-500 text-white hover:bg-green-600">Actif</Badge>
                     ) : (
-                      <Badge variant="destructive">Inactif</Badge>
+                      <Badge variant="secondary">Inactif</Badge>
                     )}
                     {viewingContact.tags && Array.isArray(viewingContact.tags) && viewingContact.tags.map((tag: string) => (
                       <Badge key={tag} variant="secondary">{tag}</Badge>

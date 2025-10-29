@@ -1,0 +1,6 @@
+order_number,status,contact_name,company_name,subtotal,discount_amount,tax_amount,total_amount,down_payment_amount,down_payment_method,down_payment_date,order_date,expected_delivery_date,created_at,updated_at
+CMD-2025-0005,termine,Gelassi Amine,"",600.00,0.00,0.00,600.00,300.00,carte,2025-10-29,2025-10-29,2025-11-12,2025-10-29 20:00:26.85567,2025-10-29 20:01:17.394114
+CMD-2025-0004,termine,Gelassi Amine,"",1500.00,0.00,0.00,1750.00,0.00,,,2025-10-26,2025-11-02,2025-10-26 18:36:21.5739,2025-10-26 18:38:58.286989
+CMD-2025-0003,termine,Salma Boussif,"",600.00,120.00,0.00,480.00,0.00,,,2025-10-25,2026-02-12,2025-10-25 21:12:48.770022,2025-10-25 21:18:13.838703
+CMD-2025-0002,annule,Salma Boussif,"",644.00,128.80,0.00,865.20,0.00,,,2025-10-25,2026-01-22,2025-10-25 20:55:11.296337,2025-10-25 21:06:44.664596
+CMD-2025-0001,termine,Youssef Mouddi,"",308.00,0.00,81.60,489.60,0.00,,,2025-10-25,,2025-10-25 19:39:47.412363,2025-10-25 19:47:16.134533

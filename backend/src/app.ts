@@ -20,6 +20,8 @@ import salesOrderRouter from './routes/sales-orders';
 import invoiceRouter from './routes/invoices';
 import settingsRouter from './routes/settings';
 import inventoryRouter from './routes/inventory.routes';
+import usersRouter from './routes/users';
+import backupRouter from './routes/backup';
 import testRouter from './routes/test-simple'; // Ultra-simple test routes
 
 export class App {
@@ -82,6 +84,7 @@ export class App {
     // API routes
     this.express.use('/api/test', testRouter); // Test routes FIRST (no auth)
     this.express.use('/api/auth', authRouter);
+    this.express.use('/api/users', usersRouter);
     this.express.use('/api/contacts', contactRouter);
     this.express.use('/api/products', productRouter);
     this.express.use('/api/quotations', quotationRouter);
@@ -89,6 +92,7 @@ export class App {
     this.express.use('/api/invoices', invoiceRouter);
     this.express.use('/api/settings', settingsRouter);
     this.express.use('/api/inventory', inventoryRouter);
+    this.express.use('/api/backup', backupRouter);
 
     // API documentation (only in development)
     if (process.env.NODE_ENV === 'development') {

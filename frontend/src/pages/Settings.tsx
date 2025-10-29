@@ -7,7 +7,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { settingsApi } from '@/services/api'
+import { settingsApi, backupApi } from '@/services/api'
+import { UserManagement } from '@/components/UserManagement'
+import { Download, Upload, Database, FileText, Trash2, AlertCircle } from 'lucide-react'
 
 export function Settings() {
   const queryClient = useQueryClient()
@@ -65,6 +67,60 @@ export function Settings() {
     e.preventDefault()
     updateCompanyMutation.mutate(companyForm)
   }
+
+  // Fetch backups list
+  const { data: backupsData, isLoading: isLoadingBackups } = useQuery({
+    queryKey: ['backups'],
+    queryFn: backupApi.list,
+    refetchInterval: 30000 // Refresh every 30 seconds
+  })
+
+  // Create backup mutation
+  const createBackupMutation = useMutation({
+    mutationFn: backupApi.create,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['backups'] })
+      toast.success('Sauvegarde créée avec succès')
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.error || 'Erreur lors de la création de la sauvegarde')
+    }
+  })
+
+  // Restore backup mutation
+  const restoreBackupMutation = useMutation({
+    mutationFn: backupApi.restore,
+    onSuccess: () => {
+      toast.success('Base de données restaurée avec succès')
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.error || 'Erreur lors de la restauration')
+    }
+  })
+
+  // Delete backup mutation
+  const deleteBackupMutation = useMutation({
+    mutationFn: backupApi.delete,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['backups'] })
+      toast.success('Sauvegarde supprimée avec succès')
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.error || 'Erreur lors de la suppression')
+    }
+  })
+
+  const handleRestoreBackup = (filename: string) => {
+    if (confirm(`⚠️ ATTENTION: La restauration va remplacer toutes les données actuelles.\n\nÊtes-vous sûr de vouloir restaurer la sauvegarde "${filename}" ?`)) {
+      restoreBackupMutation.mutate(filename)
+    }
+  }
+
+  const handleDeleteBackup = (filename: string) => {
+    if (confirm(`Êtes-vous sûr de vouloir supprimer la sauvegarde "${filename}" ?`)) {
+      deleteBackupMutation.mutate(filename)
+    }
+  }
   return (
     <div className="space-y-6">
       <div>
@@ -78,6 +134,8 @@ export function Settings() {
         <TabsList>
           <TabsTrigger value="general">Général</TabsTrigger>
           <TabsTrigger value="company">Entreprise</TabsTrigger>
+          <TabsTrigger value="users">Utilisateurs</TabsTrigger>
+          <TabsTrigger value="backups">Sauvegardes & Export</TabsTrigger>
           <TabsTrigger value="notifications">Notifications</TabsTrigger>
         </TabsList>
 
@@ -235,6 +293,199 @@ export function Settings() {
               </form>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="users">
+          <UserManagement />
+        </TabsContent>
+
+        <TabsContent value="backups">
+          <div className="space-y-4">
+            {/* Backup Statistics Card */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Database className="h-5 w-5" />
+                  Sauvegardes de la Base de Données
+                </CardTitle>
+                <CardDescription>
+                  Sauvegarde automatique quotidienne à 2h00 du matin. Conservation: 30 jours.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Statistics */}
+                {backupsData?.stats && (
+                  <div className="grid gap-4 md:grid-cols-3 mb-4">
+                    <div className="bg-blue-50 p-4 rounded-lg">
+                      <div className="text-sm text-gray-600">Nombre de sauvegardes</div>
+                      <div className="text-2xl font-bold text-blue-600">{backupsData.stats.count}</div>
+                    </div>
+                    <div className="bg-purple-50 p-4 rounded-lg">
+                      <div className="text-sm text-gray-600">Espace total utilisé</div>
+                      <div className="text-2xl font-bold text-purple-600">{backupsData.stats.totalSizeMB} MB</div>
+                    </div>
+                    <div className="bg-green-50 p-4 rounded-lg">
+                      <div className="text-sm text-gray-600">Dernière sauvegarde</div>
+                      <div className="text-sm font-bold text-green-600">
+                        {backupsData.stats.lastBackup
+                          ? new Date(backupsData.stats.lastBackup).toLocaleString('fr-FR')
+                          : 'Aucune'}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Create Backup Button */}
+                <div className="flex justify-between items-center border-b pb-4">
+                  <div>
+                    <h4 className="font-semibold">Créer une sauvegarde manuelle</h4>
+                    <p className="text-sm text-gray-600">Créez une sauvegarde complète de la base de données</p>
+                  </div>
+                  <Button
+                    onClick={() => createBackupMutation.mutate()}
+                    disabled={createBackupMutation.isPending}
+                  >
+                    <Database className="h-4 w-4 mr-2" />
+                    {createBackupMutation.isPending ? 'Création...' : 'Créer une sauvegarde'}
+                  </Button>
+                </div>
+
+                {/* Backups List */}
+                <div>
+                  <h4 className="font-semibold mb-3">Sauvegardes disponibles</h4>
+                  {isLoadingBackups ? (
+                    <div className="text-center py-8 text-gray-500">Chargement...</div>
+                  ) : backupsData?.backups && backupsData.backups.length > 0 ? (
+                    <div className="space-y-2">
+                      {backupsData.backups.map((backup: any) => (
+                        <div
+                          key={backup.filename}
+                          className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50"
+                        >
+                          <div className="flex items-center gap-3">
+                            <Database className="h-5 w-5 text-gray-400" />
+                            <div>
+                              <p className="font-medium">{backup.filename}</p>
+                              <div className="flex gap-4 text-sm text-gray-500">
+                                <span>{backup.sizeMB} MB</span>
+                                <span>{new Date(backup.createdAt).toLocaleString('fr-FR')}</span>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                const link = document.createElement('a');
+                                link.href = `${import.meta.env.VITE_API_URL}/backup/${backup.filename}`;
+                                link.download = backup.filename;
+                                link.click();
+                              }}
+                            >
+                              <Download className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleRestoreBackup(backup.filename)}
+                              disabled={restoreBackupMutation.isPending}
+                            >
+                              <Upload className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleDeleteBackup(backup.filename)}
+                              disabled={deleteBackupMutation.isPending}
+                            >
+                              <Trash2 className="h-4 w-4 text-red-500" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-gray-500">
+                      <AlertCircle className="h-8 w-8 mx-auto mb-2 text-gray-400" />
+                      <p>Aucune sauvegarde disponible</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Warning Message */}
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mt-4">
+                  <div className="flex gap-2">
+                    <AlertCircle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                    <div className="text-sm">
+                      <p className="font-semibold text-yellow-800">Avertissement</p>
+                      <p className="text-yellow-700">
+                        La restauration d'une sauvegarde remplacera toutes les données actuelles.
+                        Assurez-vous de créer une sauvegarde avant de restaurer.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Export Data Card */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="h-5 w-5" />
+                  Exporter les Données
+                </CardTitle>
+                <CardDescription>
+                  Téléchargez vos données au format CSV pour analyse externe
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <Button
+                    variant="outline"
+                    className="justify-start"
+                    onClick={() => backupApi.exportContacts()}
+                  >
+                    <FileText className="h-4 w-4 mr-2" />
+                    Exporter les contacts
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="justify-start"
+                    onClick={() => backupApi.exportProducts()}
+                  >
+                    <FileText className="h-4 w-4 mr-2" />
+                    Exporter les produits
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="justify-start"
+                    onClick={() => backupApi.exportQuotations()}
+                  >
+                    <FileText className="h-4 w-4 mr-2" />
+                    Exporter les devis
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="justify-start"
+                    onClick={() => backupApi.exportSalesOrders()}
+                  >
+                    <FileText className="h-4 w-4 mr-2" />
+                    Exporter les commandes
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="justify-start"
+                    onClick={() => backupApi.exportInvoices()}
+                  >
+                    <FileText className="h-4 w-4 mr-2" />
+                    Exporter les factures
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
 
         <TabsContent value="notifications">

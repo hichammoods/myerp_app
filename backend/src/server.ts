@@ -12,6 +12,7 @@ import { DatabaseConnection } from './database/connection';
 import { RedisConnection } from './database/redis';
 import { validateEnv, setDefaults } from './config/env.validation';
 import { initializeMinio } from './config/minio';
+import { initializeBackupScheduler } from './services/backupScheduler';
 
 // Set default environment variables first
 setDefaults();
@@ -56,6 +57,15 @@ async function startServer() {
     // Create Express app
     const app = new App();
     const server = http.createServer(app.express);
+
+    // Initialize automated backup scheduler
+    if (process.env.ENABLE_AUTO_BACKUP !== 'false') {
+      try {
+        initializeBackupScheduler();
+      } catch (error) {
+        logger.warn('Failed to initialize backup scheduler:', error);
+      }
+    }
 
     // Graceful shutdown
     process.on('SIGTERM', async () => {

@@ -1,6 +1,9 @@
 import axios from 'axios';
 import { toast } from 'react-hot-toast';
 
+// API base URL (without /api suffix for direct file downloads)
+const API_BASE_URL = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:4000';
+
 // Create axios instance with base configuration
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:4000/api',
@@ -283,6 +286,7 @@ export const quotationsApi = {
     search?: string;
     status?: string;
     contact_id?: string;
+    sales_rep_id?: string;
     sort_by?: string;
     sort_order?: 'asc' | 'desc';
   }) => {
@@ -504,6 +508,146 @@ export const invoicesApi = {
   getStats: async () => {
     const response = await api.get('/invoices/stats/overview');
     return response.data;
+  },
+};
+
+// Users API
+export const usersApi = {
+  getAll: async (params?: { search?: string; role?: string; status?: string }) => {
+    const response = await api.get('/users', { params });
+    return response.data;
+  },
+
+  getById: async (id: string) => {
+    const response = await api.get(`/users/${id}`);
+    return response.data;
+  },
+
+  create: async (data: {
+    email: string;
+    first_name: string;
+    last_name: string;
+    role: 'admin' | 'sales' | 'inventory_manager';
+    phone?: string;
+    generate_password?: boolean;
+    password?: string;
+  }) => {
+    const response = await api.post('/users', data);
+    return response.data;
+  },
+
+  update: async (id: string, data: {
+    email?: string;
+    first_name?: string;
+    last_name?: string;
+    role?: 'admin' | 'sales' | 'inventory_manager';
+    phone?: string;
+  }) => {
+    const response = await api.put(`/users/${id}`, data);
+    return response.data;
+  },
+
+  suspend: async (id: string) => {
+    const response = await api.post(`/users/${id}/suspend`);
+    return response.data;
+  },
+
+  unsuspend: async (id: string) => {
+    const response = await api.post(`/users/${id}/unsuspend`);
+    return response.data;
+  },
+
+  delete: async (id: string) => {
+    const response = await api.delete(`/users/${id}`);
+    return response.data;
+  },
+
+  resetPassword: async (id: string, data?: { generate_password?: boolean; password?: string }) => {
+    const response = await api.post(`/users/${id}/reset-password`, data);
+    return response.data;
+  },
+
+  getRoles: async () => {
+    const response = await api.get('/users/meta/roles');
+    return response.data;
+  },
+};
+
+// Backup API
+export const backupApi = {
+  create: async () => {
+    const response = await api.post('/backup/create');
+    return response.data;
+  },
+
+  list: async () => {
+    const response = await api.get('/backup/list');
+    return response.data;
+  },
+
+  restore: async (filename: string) => {
+    const response = await api.post('/backup/restore', { filename });
+    return response.data;
+  },
+
+  delete: async (filename: string) => {
+    const response = await api.delete(`/backup/${filename}`);
+    return response.data;
+  },
+
+  exportContacts: async () => {
+    const response = await api.get('/backup/export/contacts', { responseType: 'blob' });
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `contacts_export_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  },
+
+  exportProducts: async () => {
+    const response = await api.get('/backup/export/products', { responseType: 'blob' });
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `products_export_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  },
+
+  exportQuotations: async () => {
+    const response = await api.get('/backup/export/quotations', { responseType: 'blob' });
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `quotations_export_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  },
+
+  exportSalesOrders: async () => {
+    const response = await api.get('/backup/export/sales-orders', { responseType: 'blob' });
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `sales_orders_export_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  },
+
+  exportInvoices: async () => {
+    const response = await api.get('/backup/export/invoices', { responseType: 'blob' });
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `invoices_export_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
   },
 };
 

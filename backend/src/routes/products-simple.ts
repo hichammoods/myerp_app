@@ -3,6 +3,7 @@ import { Client } from 'pg';
 import { logger } from '../utils/logger';
 import { upload, generateUniqueFilename } from '../middleware/upload';
 import { minioClient, bucketName } from '../config/minio';
+import { authenticateToken, authorizeRole } from '../middleware/auth';
 
 const router = Router();
 
@@ -179,8 +180,8 @@ router.put('/categories/:id', async (req: Request, res: Response) => {
   }
 });
 
-// DELETE category
-router.delete('/categories/:id', async (req: Request, res: Response) => {
+// DELETE category (admin and inventory_manager)
+router.delete('/categories/:id', authenticateToken, authorizeRole('admin', 'inventory_manager'), async (req: Request, res: Response) => {
   let client;
   try {
     const { id } = req.params;
@@ -364,8 +365,8 @@ router.put('/materials/:id', async (req: Request, res: Response) => {
   }
 });
 
-// DELETE material
-router.delete('/materials/:id', async (req: Request, res: Response) => {
+// DELETE material (admin and inventory_manager)
+router.delete('/materials/:id', authenticateToken, authorizeRole('admin', 'inventory_manager'), async (req: Request, res: Response) => {
   let client;
   try {
     const { id } = req.params;
@@ -523,8 +524,8 @@ router.put('/finishes/:id', async (req: Request, res: Response) => {
   }
 });
 
-// DELETE finish
-router.delete('/finishes/:id', async (req: Request, res: Response) => {
+// DELETE finish (admin and inventory_manager)
+router.delete('/finishes/:id', authenticateToken, authorizeRole('admin', 'inventory_manager'), async (req: Request, res: Response) => {
   let client;
   try {
     const { id } = req.params;
@@ -933,8 +934,8 @@ router.put('/:id', async (req: Request, res: Response) => {
   }
 });
 
-// DELETE product
-router.delete('/:id', async (req: Request, res: Response) => {
+// DELETE product (admin and inventory_manager)
+router.delete('/:id', authenticateToken, authorizeRole('admin', 'inventory_manager'), async (req: Request, res: Response) => {
   let client;
   try {
     const { id } = req.params;
@@ -1160,8 +1161,8 @@ router.post('/:id/upload-image', upload.single('image'), async (req: Request, re
   }
 });
 
-// DELETE product image
-router.delete('/:id/images/:filename', async (req: Request, res: Response) => {
+// DELETE product image (admin and inventory_manager)
+router.delete('/:id/images/:filename', authenticateToken, authorizeRole('admin', 'inventory_manager'), async (req: Request, res: Response) => {
   let client;
   try {
     const { id, filename } = req.params;

@@ -1,0 +1,9 @@
+first_name,last_name,email,phone,mobile,company_name,address_street,address_city,address_zip,address_country,type,discount_rate,created_at,updated_at
+Salma,bebeb,"",0686638611,0686638611,"","","","",France,client,0.00,2025-10-29 18:10:08.335032,2025-10-29 18:10:08.335032
+Leyla,Mouddi,"",0663886949,0663886949,"","","","",France,client,0.00,2025-10-29 18:04:06.878973,2025-10-29 18:04:06.878973
+Gelassi,Amine,amine.gelassi@gmail.com,0686638611,"","",5 rue hotel de ville,Neuilly Sur Seine,92200,France,client,0.00,2025-10-26 18:15:31.780224,2025-10-26 20:31:20.214788
+Salma,Boussif,salma@gmail.com,+33652644282,"","",43 rue saint vincent,Colombes,92700,France,client,0.00,2025-10-25 11:53:18.801654,2025-10-25 15:12:49.644991
+Youssef,Mouddi,mouddi.youssef@gmail.com,+3272737823,"","",5 rue georges collon,Bruxelles,82892,Belgique,client,0.00,2025-10-25 11:07:23.23817,2025-10-25 15:12:54.721737
+SSSS,SSS,hicham.mouddsdzddi@ubudu.com,+33663886949,"",HSHHS,Av. Clément Ader,Tarnos,40220,France,supplier,10.00,2025-10-24 18:58:42.595359,2025-10-24 19:19:33.424368
+Hicham,Hicham MOUDDI,hicham.mouddi@gmaol.com,"","",HEAD OF CUSTOMER SUCCESS,29 boulevard Richard Wallace,92800 - PUTEAUX,92800,France,client,0.00,2025-10-24 18:08:50.542042,2025-10-24 19:19:39.551386
+Lamia,Boussif,lamia.boussif@gmail.com,+33652644282,"","",12 rue de l'abbé carton,75014 - PARIS 14,75014,France,client,0.00,2025-10-24 17:24:18.284961,2025-10-25 11:13:40.727822

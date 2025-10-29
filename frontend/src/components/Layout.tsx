@@ -17,15 +17,15 @@ import {
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
 
-const navigation = [
-  { name: 'Tableau de bord', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Produits', href: '/products', icon: Package },
-  { name: 'Stock', href: '/inventory', icon: BarChart3 },
-  { name: 'Contacts', href: '/contacts', icon: Users },
-  { name: 'Devis', href: '/quotations', icon: FileText },
-  { name: 'Commandes', href: '/sales-orders', icon: ShoppingCart },
-  { name: 'Factures', href: '/invoices', icon: Receipt },
-  { name: 'Paramètres', href: '/settings', icon: Settings },
+const allNavigation = [
+  { name: 'Tableau de bord', href: '/dashboard', icon: LayoutDashboard, roles: ['admin', 'sales', 'inventory_manager'] },
+  { name: 'Produits', href: '/products', icon: Package, roles: ['admin', 'sales', 'inventory_manager'] },
+  { name: 'Stock', href: '/inventory', icon: BarChart3, roles: ['admin', 'sales', 'inventory_manager'] },
+  { name: 'Contacts', href: '/contacts', icon: Users, roles: ['admin', 'sales'] },
+  { name: 'Devis', href: '/quotations', icon: FileText, roles: ['admin', 'sales'] },
+  { name: 'Commandes', href: '/sales-orders', icon: ShoppingCart, roles: ['admin', 'sales'] },
+  { name: 'Factures', href: '/invoices', icon: Receipt, roles: ['admin', 'sales'] },
+  { name: 'Paramètres', href: '/settings', icon: Settings, roles: ['admin'] },
 ]
 
 export function Layout() {
@@ -33,6 +33,11 @@ export function Layout() {
   const navigate = useNavigate()
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  // Filter navigation based on user role
+  const navigation = allNavigation.filter(item =>
+    item.roles.includes(user?.role || 'sales')
+  )
 
   const handleLogout = () => {
     logout()

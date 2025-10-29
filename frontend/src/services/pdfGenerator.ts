@@ -69,6 +69,10 @@ interface SalesOrder {
   installationCost?: number
   totalTax: number
   total: number
+  downPaymentAmount?: number
+  downPaymentMethod?: string
+  downPaymentDate?: Date
+  downPaymentNotes?: string
   notes?: string
   deliveryAddress?: string
   status: string
@@ -89,6 +93,10 @@ interface Invoice {
   installationCost?: number
   totalTax: number
   total: number
+  downPaymentAmount?: number
+  downPaymentMethod?: string
+  downPaymentDate?: Date
+  downPaymentNotes?: string
   amountPaid?: number
   amountDue?: number
   notes?: string
@@ -720,6 +728,50 @@ export class PDFGenerator {
     this.drawItemsTable(salesOrder.items)
     this.drawTotals(quotationFormat)
 
+    // Down payment section for sales order
+    if (salesOrder.downPaymentAmount && salesOrder.downPaymentAmount > 0) {
+      this.currentY += 8
+      const totalsX = this.pageWidth - this.margin - 60
+      const labelX = totalsX - 35
+
+      this.doc.setFont('helvetica', 'bold')
+      this.doc.setFontSize(9)
+      this.doc.setTextColor('#16a34a') // Green-600
+
+      this.doc.text('Acompte versé:', labelX, this.currentY, { align: 'right' })
+      this.doc.text(`-${salesOrder.downPaymentAmount.toFixed(2)} €`, totalsX + 50, this.currentY, { align: 'right' })
+
+      this.currentY += 5
+
+      const remainingBalance = salesOrder.total - salesOrder.downPaymentAmount
+      this.doc.setTextColor(this.textColor)
+      this.doc.text('Solde restant:', labelX, this.currentY, { align: 'right' })
+      this.doc.text(`${remainingBalance.toFixed(2)} €`, totalsX + 50, this.currentY, { align: 'right' })
+
+      // Add payment details if available
+      if (salesOrder.downPaymentMethod || salesOrder.downPaymentDate) {
+        this.currentY += 8
+        this.doc.setFont('helvetica', 'normal')
+        this.doc.setFontSize(8)
+        this.doc.setTextColor(this.textColor)
+
+        if (salesOrder.downPaymentMethod) {
+          const methodLabel = salesOrder.downPaymentMethod === 'especes' ? 'Espèces' :
+                             salesOrder.downPaymentMethod === 'carte' ? 'Carte bancaire' :
+                             salesOrder.downPaymentMethod === 'virement' ? 'Virement' :
+                             salesOrder.downPaymentMethod === 'cheque' ? 'Chèque' :
+                             salesOrder.downPaymentMethod
+          this.doc.text(`Mode de paiement: ${methodLabel}`, labelX - 35, this.currentY, { align: 'left' })
+          this.currentY += 4
+        }
+
+        if (salesOrder.downPaymentDate) {
+          const dateStr = salesOrder.downPaymentDate.toLocaleDateString('fr-FR')
+          this.doc.text(`Date de paiement: ${dateStr}`, labelX - 35, this.currentY, { align: 'left' })
+        }
+      }
+    }
+
     // Custom footer for sales order
     this.addNewPageIfNeeded(40)
     this.currentY += 10
@@ -789,22 +841,77 @@ export class PDFGenerator {
     this.drawTotals(quotationFormat)
 
     // Payment information for invoice
-    if (invoice.amountPaid !== undefined && invoice.amountDue !== undefined) {
-      this.currentY += 8
-      const totalsX = this.pageWidth - this.margin - 60
-      const labelX = totalsX - 35
+    // Only show payment breakdown if invoice is NOT fully paid
+    if (invoice.status !== 'payee') {
+      if (invoice.downPaymentAmount && invoice.downPaymentAmount > 0) {
+        this.currentY += 8
+        const totalsX = this.pageWidth - this.margin - 60
+        const labelX = totalsX - 35
 
+        this.doc.setFont('helvetica', 'bold')
+        this.doc.setFontSize(9)
+        this.doc.setTextColor('#16a34a') // Green-600
+
+        this.doc.text('Acompte versé:', labelX, this.currentY, { align: 'right' })
+        this.doc.text(`-${invoice.downPaymentAmount.toFixed(2)} €`, totalsX + 50, this.currentY, { align: 'right' })
+
+        this.currentY += 5
+
+        // Calculate remaining balance
+        const remainingBalance = invoice.total - invoice.downPaymentAmount
+        this.doc.setTextColor(this.textColor)
+        this.doc.text('Solde dû:', labelX, this.currentY, { align: 'right' })
+        this.doc.text(`${remainingBalance.toFixed(2)} €`, totalsX + 50, this.currentY, { align: 'right' })
+
+        // Add payment details if available
+        if (invoice.downPaymentMethod || invoice.downPaymentDate) {
+          this.currentY += 8
+          this.doc.setFont('helvetica', 'normal')
+          this.doc.setFontSize(8)
+          this.doc.setTextColor(this.textColor)
+
+          if (invoice.downPaymentMethod) {
+            const methodLabel = invoice.downPaymentMethod === 'especes' ? 'Espèces' :
+                               invoice.downPaymentMethod === 'carte' ? 'Carte bancaire' :
+                               invoice.downPaymentMethod === 'virement' ? 'Virement' :
+                               invoice.downPaymentMethod === 'cheque' ? 'Chèque' :
+                               invoice.downPaymentMethod
+            this.doc.text(`Acompte payé par: ${methodLabel}`, labelX - 35, this.currentY, { align: 'left' })
+            this.currentY += 4
+          }
+
+          if (invoice.downPaymentDate) {
+            const dateStr = invoice.downPaymentDate.toLocaleDateString('fr-FR')
+            this.doc.text(`Date de l'acompte: ${dateStr}`, labelX - 35, this.currentY, { align: 'left' })
+          }
+        }
+      } else if (invoice.amountDue !== undefined && invoice.amountDue > 0) {
+        // Legacy: show remaining amount if no down payment but still unpaid
+        this.currentY += 8
+        const totalsX = this.pageWidth - this.margin - 60
+        const labelX = totalsX - 35
+
+        this.doc.setFont('helvetica', 'bold')
+        this.doc.setFontSize(9)
+        this.doc.setTextColor(this.primaryColor)
+
+        this.doc.text('Reste à payer:', labelX, this.currentY, { align: 'right' })
+        this.doc.text(`${invoice.amountDue.toFixed(2)} €`, totalsX + 50, this.currentY, { align: 'right' })
+      }
+    } else {
+      // Invoice is fully paid - show PAID stamp
+      this.currentY += 10
       this.doc.setFont('helvetica', 'bold')
-      this.doc.setFontSize(9)
-      this.doc.setTextColor(this.primaryColor)
+      this.doc.setFontSize(14)
+      this.doc.setTextColor('#16a34a') // Green
+      this.doc.text('✓ PAYÉE', this.pageWidth / 2, this.currentY, { align: 'center' })
 
-      this.doc.text('Montant payé:', labelX, this.currentY, { align: 'right' })
-      this.doc.text(`${invoice.amountPaid.toFixed(2)} €`, totalsX + 50, this.currentY, { align: 'right' })
-
-      this.currentY += 5
-
-      this.doc.text('Reste à payer:', labelX, this.currentY, { align: 'right' })
-      this.doc.text(`${invoice.amountDue.toFixed(2)} €`, totalsX + 50, this.currentY, { align: 'right' })
+      if (invoice.amountPaid && invoice.amountPaid > 0) {
+        this.currentY += 6
+        this.doc.setFontSize(9)
+        this.doc.setTextColor(this.textColor)
+        this.doc.text(`Solde payé le ${invoice.amountPaid ? new Date().toLocaleDateString('fr-FR') : ''}`, this.pageWidth / 2, this.currentY, { align: 'center' })
+      }
     }
 
     // Custom footer for invoice

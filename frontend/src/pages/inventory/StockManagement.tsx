@@ -132,7 +132,7 @@ export function StockManagement() {
   const [searchTerm, setSearchTerm] = useState('')
   const [filterCategory, setFilterCategory] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
-  const [filterType, setFilterType] = useState<'all' | 'product' | 'material'>('all')
+  const [filterType, setFilterType] = useState<'all' | 'product' | 'material'>('product')
   const [selectedItem, setSelectedItem] = useState<StockItem | null>(null)
   const [showAdjustmentDialog, setShowAdjustmentDialog] = useState(false)
   const [showStockLevelsDialog, setShowStockLevelsDialog] = useState(false)
@@ -377,13 +377,6 @@ export function StockManagement() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={exportStockReport}
-          >
-            <FileDown className="h-4 w-4 mr-2" />
-            Exporter
-          </Button>
         </div>
       </div>
 
@@ -952,6 +945,7 @@ export function StockManagement() {
               <Input
                 type="number"
                 min="0"
+                step={selectedItem?.type === 'product' ? "1" : "0.01"}
                 value={adjustment.quantity}
                 onChange={(e) =>
                   setAdjustment({ ...adjustment, quantity: parseFloat(e.target.value) || 0 })

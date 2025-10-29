@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { db } from '../database/connection';
 import { logger } from '../utils/logger';
 import { redisClient } from '../database/redis';
-import { authenticateToken } from '../middleware/auth';
+import { authenticateToken, authorizeRole } from '../middleware/auth';
 import { body, validationResult, query } from 'express-validator';
 
 const router = Router();
@@ -55,6 +55,7 @@ router.get('/', authenticateToken, [
   query('limit').optional().isInt({ min: 1, max: 100 }),
   query('status').optional().isIn(['draft', 'sent', 'accepted', 'rejected', 'expired']),
   query('contact_id').optional().isUUID(),
+  query('sales_rep_id').optional().isUUID(),
   query('search').optional().isString(),
   query('from_date').optional().isISO8601(),
   query('to_date').optional().isISO8601(),
@@ -70,6 +71,7 @@ router.get('/', authenticateToken, [
     const offset = (page - 1) * limit;
     const status = req.query.status as string;
     const contact_id = req.query.contact_id as string;
+    const sales_rep_id = req.query.sales_rep_id as string;
     const search = req.query.search as string;
     const from_date = req.query.from_date as string;
     const to_date = req.query.to_date as string;
@@ -82,9 +84,12 @@ router.get('/', authenticateToken, [
         c.company_name,
         c.email as contact_email,
         c.phone as contact_phone,
+        u.first_name || ' ' || u.last_name as sales_rep_name,
+        u.email as sales_rep_email,
         COUNT(DISTINCT ql.id) as line_items_count
       FROM quotations q
       LEFT JOIN contacts c ON q.contact_id = c.id
+      LEFT JOIN users u ON q.sales_rep_id = u.id
       LEFT JOIN quotation_lines ql ON q.id = ql.quotation_id
       WHERE 1=1
     `;
@@ -101,6 +106,12 @@ router.get('/', authenticateToken, [
     if (contact_id) {
       queryStr += ` AND q.contact_id = $${paramIndex}`;
       params.push(contact_id);
+      paramIndex++;
+    }
+
+    if (sales_rep_id) {
+      queryStr += ` AND q.sales_rep_id = $${paramIndex}`;
+      params.push(sales_rep_id);
       paramIndex++;
     }
 
@@ -131,7 +142,7 @@ router.get('/', authenticateToken, [
     // Check for expired quotations
     queryStr += ` AND (q.status != 'sent' OR q.expiration_date >= CURRENT_DATE OR q.status = 'expired')`;
 
-    queryStr += ` GROUP BY q.id, c.id ORDER BY q.created_at DESC`;
+    queryStr += ` GROUP BY q.id, c.id, u.id ORDER BY q.created_at DESC`;
 
     // Get total count
     const countQuery = `
@@ -208,6 +219,8 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
         c.address_city as contact_city,
         c.address_zip as contact_postal_code,
         c.address_country as contact_country,
+        u.first_name || ' ' || u.last_name as sales_rep_name,
+        u.email as sales_rep_email,
         json_agg(
           jsonb_build_object(
             'id', ql.id,
@@ -228,9 +241,10 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
         ) FILTER (WHERE ql.id IS NOT NULL) as line_items
       FROM quotations q
       LEFT JOIN contacts c ON q.contact_id = c.id
+      LEFT JOIN users u ON q.sales_rep_id = u.id
       LEFT JOIN quotation_lines ql ON q.id = ql.quotation_id
       WHERE q.id = $1
-      GROUP BY q.id, c.id
+      GROUP BY q.id, c.id, u.id
     `;
 
     const result = await db.query(query, [id]);
@@ -377,14 +391,14 @@ router.post('/', authenticateToken, [
 
       const quotationResult = await client.query(
         `INSERT INTO quotations (
-          quotation_number, contact_id, status, expiration_date,
+          quotation_number, contact_id, sales_rep_id, status, expiration_date,
           subtotal, discount_percent, discount_amount,
           tax_rate, tax_amount, shipping_cost, installation_cost, include_tax, total_amount, currency,
           notes, terms_conditions
-        ) VALUES ($1, $2, 'draft', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'EUR', $13, $14)
+        ) VALUES ($1, $2, $3, 'draft', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'EUR', $14, $15)
         RETURNING *`,
         [
-          quotation_number, contact_id, expiration_date,
+          quotation_number, contact_id, req.user?.id, expiration_date,
           subtotal, discount_percent, discount_amount,
           tax_rate, total_tax, shipping_cost, installation_cost, include_tax, total_amount,
           notes, terms_conditions
@@ -728,14 +742,14 @@ router.post('/:id/duplicate', authenticateToken, async (req: Request, res: Respo
       // Insert duplicate quotation
       const quotationResult = await client.query(
         `INSERT INTO quotations (
-          quotation_number, contact_id, status, expiration_date,
+          quotation_number, contact_id, sales_rep_id, status, expiration_date,
           subtotal, discount_type, discount_value, discount_amount,
           tax_amount, shipping_cost, total_amount, currency,
           notes, terms_conditions
-        ) VALUES ($1, $2, 'draft', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        ) VALUES ($1, $2, $3, 'draft', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         RETURNING *`,
         [
-          quotation_number, original.contact_id, expiration_date,
+          quotation_number, original.contact_id, req.user?.id, expiration_date,
           original.subtotal, original.discount_type, original.discount_value,
           original.discount_amount, original.tax_amount, original.shipping_cost,
           original.total_amount, original.currency,
@@ -783,8 +797,8 @@ router.post('/:id/duplicate', authenticateToken, async (req: Request, res: Respo
   }
 });
 
-// DELETE quotation
-router.delete('/:id', authenticateToken, async (req: Request, res: Response) => {
+// DELETE quotation (admin only)
+router.delete('/:id', authenticateToken, authorizeRole('admin'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 

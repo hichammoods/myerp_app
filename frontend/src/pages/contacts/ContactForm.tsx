@@ -52,6 +52,9 @@ export function ContactForm({ contact, onSave, onClose }: ContactFormProps) {
   })
 
   const [newTag, setNewTag] = useState('')
+  const [errors, setErrors] = useState<Record<string, boolean>>({})
+  const [citySuggestions, setCitySuggestions] = useState<string[]>([])
+  const [showCitySuggestions, setShowCitySuggestions] = useState(false)
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target
@@ -59,6 +62,39 @@ export function ContactForm({ contact, onSave, onClose }: ContactFormProps) {
       ...prev,
       [name]: value
     }))
+
+    // Clear error for this field when user starts typing
+    if (errors[name]) {
+      setErrors(prev => ({ ...prev, [name]: false }))
+    }
+
+    // City autocomplete
+    if (name === 'address_city' && value.length >= 2) {
+      fetchCitySuggestions(value)
+    } else if (name === 'address_city') {
+      setCitySuggestions([])
+      setShowCitySuggestions(false)
+    }
+  }
+
+  const fetchCitySuggestions = async (query: string) => {
+    try {
+      const response = await fetch(
+        `https://geo.api.gouv.fr/communes?nom=${encodeURIComponent(query)}&fields=nom,code,codesPostaux&limit=10`
+      )
+      const data = await response.json()
+      const cities = data.map((city: any) => city.nom)
+      setCitySuggestions(cities)
+      setShowCitySuggestions(cities.length > 0)
+    } catch (error) {
+      console.error('Error fetching cities:', error)
+    }
+  }
+
+  const handleCitySelect = (city: string) => {
+    setFormData(prev => ({ ...prev, address_city: city }))
+    setShowCitySuggestions(false)
+    setCitySuggestions([])
   }
 
   const handleSwitchChange = (name: string) => (checked: boolean) => {
@@ -88,15 +124,45 @@ export function ContactForm({ contact, onSave, onClose }: ContactFormProps) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
 
-    // Basic validation
-    if (!formData.company_name && (!formData.first_name || !formData.last_name)) {
-      toast.error('Veuillez renseigner le nom de la société ou le nom du contact')
-      return
+    // Validation
+    const newErrors: Record<string, boolean> = {}
+    let hasErrors = false
+
+    // Helper function to check if a field is empty
+    const isEmpty = (value: string | undefined | null) => {
+      return !value || value.trim() === ''
     }
 
-    if (!formData.email && !formData.phone && !formData.mobile) {
-      toast.error('Veuillez renseigner au moins un moyen de contact (email ou téléphone)')
-      return
+    // Either company_name OR (first_name AND last_name) is required
+    const hasCompanyName = !isEmpty(formData.company_name)
+    const hasFirstName = !isEmpty(formData.first_name)
+    const hasLastName = !isEmpty(formData.last_name)
+
+    if (!hasCompanyName && (!hasFirstName || !hasLastName)) {
+      newErrors.company_name = true
+      newErrors.first_name = true
+      newErrors.last_name = true
+      toast.error('Informations manquantes: Veuillez renseigner le nom de la société OU le nom et prénom du contact')
+      hasErrors = true
+    }
+
+    // At least one contact method is required (email, phone, or mobile)
+    const hasEmail = !isEmpty(formData.email)
+    const hasPhone = !isEmpty(formData.phone)
+    const hasMobile = !isEmpty(formData.mobile)
+
+    if (!hasEmail && !hasPhone && !hasMobile) {
+      newErrors.email = true
+      newErrors.phone = true
+      newErrors.mobile = true
+      toast.error('Informations manquantes: Veuillez renseigner au moins un moyen de contact (email, téléphone ou mobile)')
+      hasErrors = true
+    }
+
+    // If there are errors, don't submit and highlight fields
+    if (hasErrors) {
+      setErrors(newErrors)
+      return // Form stays open, does not close
     }
 
     onSave(formData)
@@ -151,7 +217,8 @@ export function ContactForm({ contact, onSave, onClose }: ContactFormProps) {
               <div className="space-y-2">
                 <Label htmlFor="company_name">
                   <Building2 className="inline mr-2 h-4 w-4" />
-                  Nom de la société
+                  Nom de la société <span className="text-red-500">*</span>
+                  <span className="text-sm text-gray-500 ml-2">(ou nom/prénom)</span>
                 </Label>
                 <Input
                   id="company_name"
@@ -159,28 +226,37 @@ export function ContactForm({ contact, onSave, onClose }: ContactFormProps) {
                   value={formData.company_name}
                   onChange={handleInputChange}
                   placeholder="Meubles Design SARL"
+                  className={errors.company_name ? 'border-red-500 focus:border-red-500' : ''}
                 />
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="first_name">Prénom</Label>
+                  <Label htmlFor="first_name">
+                    Prénom <span className="text-red-500">*</span>
+                    <span className="text-sm text-gray-500 ml-2">(ou société)</span>
+                  </Label>
                   <Input
                     id="first_name"
                     name="first_name"
                     value={formData.first_name}
                     onChange={handleInputChange}
                     placeholder="Jean"
+                    className={errors.first_name ? 'border-red-500 focus:border-red-500' : ''}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="last_name">Nom</Label>
+                  <Label htmlFor="last_name">
+                    Nom <span className="text-red-500">*</span>
+                    <span className="text-sm text-gray-500 ml-2">(ou société)</span>
+                  </Label>
                   <Input
                     id="last_name"
                     name="last_name"
                     value={formData.last_name}
                     onChange={handleInputChange}
                     placeholder="Dupont"
+                    className={errors.last_name ? 'border-red-500 focus:border-red-500' : ''}
                   />
                 </div>
               </div>
@@ -188,7 +264,8 @@ export function ContactForm({ contact, onSave, onClose }: ContactFormProps) {
               <div className="space-y-2">
                 <Label htmlFor="email">
                   <Mail className="inline mr-2 h-4 w-4" />
-                  Email
+                  Email <span className="text-red-500">*</span>
+                  <span className="text-sm text-gray-500 ml-2">(ou téléphone)</span>
                 </Label>
                 <Input
                   id="email"
@@ -197,6 +274,7 @@ export function ContactForm({ contact, onSave, onClose }: ContactFormProps) {
                   value={formData.email}
                   onChange={handleInputChange}
                   placeholder="contact@entreprise.fr"
+                  className={errors.email ? 'border-red-500 focus:border-red-500' : ''}
                 />
               </div>
 
@@ -204,7 +282,8 @@ export function ContactForm({ contact, onSave, onClose }: ContactFormProps) {
                 <div className="space-y-2">
                   <Label htmlFor="phone">
                     <Phone className="inline mr-2 h-4 w-4" />
-                    Téléphone fixe
+                    Téléphone fixe <span className="text-red-500">*</span>
+                    <span className="text-sm text-gray-500 ml-2">(ou email)</span>
                   </Label>
                   <Input
                     id="phone"
@@ -212,12 +291,14 @@ export function ContactForm({ contact, onSave, onClose }: ContactFormProps) {
                     value={formData.phone}
                     onChange={handleInputChange}
                     placeholder="+33 1 23 45 67 89"
+                    className={errors.phone ? 'border-red-500 focus:border-red-500' : ''}
                   />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="mobile">
                     <Phone className="inline mr-2 h-4 w-4" />
-                    Téléphone mobile
+                    Téléphone mobile <span className="text-red-500">*</span>
+                    <span className="text-sm text-gray-500 ml-2">(ou email)</span>
                   </Label>
                   <Input
                     id="mobile"
@@ -225,6 +306,7 @@ export function ContactForm({ contact, onSave, onClose }: ContactFormProps) {
                     value={formData.mobile}
                     onChange={handleInputChange}
                     placeholder="+33 6 12 34 56 78"
+                    className={errors.mobile ? 'border-red-500 focus:border-red-500' : ''}
                   />
                 </div>
               </div>
@@ -273,15 +355,31 @@ export function ContactForm({ contact, onSave, onClose }: ContactFormProps) {
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
+                <div className="space-y-2 relative">
                   <Label htmlFor="address_city">Ville</Label>
                   <Input
                     id="address_city"
                     name="address_city"
                     value={formData.address_city}
                     onChange={handleInputChange}
+                    onFocus={() => formData.address_city.length >= 2 && setShowCitySuggestions(true)}
+                    onBlur={() => setTimeout(() => setShowCitySuggestions(false), 200)}
                     placeholder="Paris"
+                    autoComplete="off"
                   />
+                  {showCitySuggestions && citySuggestions.length > 0 && (
+                    <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                      {citySuggestions.map((city, index) => (
+                        <div
+                          key={index}
+                          className="px-3 py-2 hover:bg-blue-50 cursor-pointer"
+                          onClick={() => handleCitySelect(city)}
+                        >
+                          {city}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="address_zip">Code postal</Label>

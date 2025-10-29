@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { db } from '../database/connection';
 import { logger } from '../utils/logger';
 import { redisClient } from '../database/redis';
-import { authenticateToken } from '../middleware/auth';
+import { authenticateToken, authorizeRole } from '../middleware/auth';
 import { body, validationResult, query } from 'express-validator';
 
 const router = Router();
@@ -178,6 +178,10 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
         c.address_zip as contact_postal_code,
         c.address_country as contact_country,
         so.order_number,
+        so.down_payment_amount,
+        so.down_payment_method,
+        so.down_payment_date,
+        so.down_payment_notes,
         q.quotation_number,
         json_agg(
           jsonb_build_object(
@@ -405,9 +409,12 @@ router.patch('/:id/payment', authenticateToken, [
     } = req.body;
 
     const result = await db.transaction(async (client) => {
-      // Get current invoice
+      // Get current invoice with down payment from sales order
       const currentInvoice = await client.query(
-        'SELECT * FROM invoices WHERE id = $1',
+        `SELECT i.*, so.down_payment_amount
+         FROM invoices i
+         LEFT JOIN sales_orders so ON i.sales_order_id = so.id
+         WHERE i.id = $1`,
         [id]
       );
 
@@ -417,19 +424,24 @@ router.patch('/:id/payment', authenticateToken, [
 
       const invoice = currentInvoice.rows[0];
 
-      // Calculate new totals
-      const newAmountPaid = parseFloat(amount_paid);
-      const newAmountDue = invoice.total_amount - newAmountPaid;
+      // Get down payment amount (from sales order)
+      const downPaymentAmount = parseFloat(invoice.down_payment_amount || 0);
+
+      // Calculate total amount paid (down payment + new payment)
+      const finalPaymentAmount = parseFloat(amount_paid);
+      const totalPaid = downPaymentAmount + finalPaymentAmount;
+      const newAmountDue = invoice.total_amount - totalPaid;
 
       // Determine new status
       let newStatus = invoice.status;
-      if (newAmountDue <= 0) {
+      if (newAmountDue <= 0.01) { // Allow for small rounding differences
         newStatus = 'payee';
       } else if (newStatus === 'brouillon') {
         newStatus = 'envoyee';
       }
 
-      // Update invoice
+      // Update invoice - store only the final payment (not total)
+      // The total will be calculated by adding down_payment + amount_paid
       const updateResult = await client.query(
         `UPDATE invoices
          SET amount_paid = $1,
@@ -442,12 +454,12 @@ router.patch('/:id/payment', authenticateToken, [
          WHERE id = $7
          RETURNING *`,
         [
-          newAmountPaid,
+          finalPaymentAmount,  // Store only the final payment
           newAmountDue,
           newStatus,
           payment_method || null,
           payment_reference || null,
-          payment_date || (newAmountDue <= 0 ? new Date().toISOString() : null),
+          payment_date || (newAmountDue <= 0.01 ? new Date().toISOString() : null),
           id,
         ]
       );
@@ -466,8 +478,8 @@ router.patch('/:id/payment', authenticateToken, [
   }
 });
 
-// DELETE invoice
-router.delete('/:id', authenticateToken, async (req: Request, res: Response) => {
+// DELETE invoice (admin only)
+router.delete('/:id', authenticateToken, authorizeRole('admin'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 

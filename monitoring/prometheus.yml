@@ -1,0 +1,42 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'myerp-production'
+    environment: 'production'
+
+scrape_configs:
+  # Backend API metrics
+  - job_name: 'backend'
+    static_configs:
+      - targets: ['backend:9091']
+    metrics_path: '/metrics'
+
+  # PostgreSQL metrics (requires postgres_exporter)
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres:9187']
+
+  # Redis metrics (requires redis_exporter)
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:9121']
+
+  # Node exporter for system metrics
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  # Nginx metrics
+  - job_name: 'nginx'
+    static_configs:
+      - targets: ['nginx:9113']
+
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+# Alerting rules (optional)
+rule_files:
+  - '/etc/prometheus/alerts/*.yml'

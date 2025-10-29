@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label'
 import { EnhancedQuotationBuilder } from './EnhancedQuotationBuilder'
 import { toast } from 'react-hot-toast'
 import { generateQuotationPDF } from '@/services/pdfGenerator'
-import { quotationsApi, settingsApi, salesOrdersApi } from '@/services/api'
+import { quotationsApi, settingsApi, salesOrdersApi, usersApi } from '@/services/api'
 import {
   Plus,
   FileText,
@@ -56,11 +56,16 @@ export function QuotationManagement() {
   const [searchInput, setSearchInput] = useState('')  // User input (not debounced)
   const [searchTerm, setSearchTerm] = useState('')    // Debounced search term
   const [filterStatus, setFilterStatus] = useState('all')
+  const [filterSalesRep, setFilterSalesRep] = useState('all')
   const [filterPeriod, setFilterPeriod] = useState('all')
   const [sortBy, setSortBy] = useState('date_desc')
   const [showConvertDialog, setShowConvertDialog] = useState(false)
   const [quotationToConvert, setQuotationToConvert] = useState<any>(null)
   const [expectedDeliveryDate, setExpectedDeliveryDate] = useState('')
+  const [downPaymentAmount, setDownPaymentAmount] = useState('')
+  const [downPaymentMethod, setDownPaymentMethod] = useState('')
+  const [downPaymentDate, setDownPaymentDate] = useState('')
+  const [downPaymentNotes, setDownPaymentNotes] = useState('')
 
   // Debounce search input
   useEffect(() => {
@@ -73,10 +78,11 @@ export function QuotationManagement() {
 
   // Fetch quotations from API
   const { data: quotationsData, isLoading, error } = useQuery({
-    queryKey: ['quotations', { search: searchTerm, status: filterStatus === 'all' ? undefined : filterStatus }],
+    queryKey: ['quotations', { search: searchTerm, status: filterStatus === 'all' ? undefined : filterStatus, sales_rep_id: filterSalesRep === 'all' ? undefined : filterSalesRep }],
     queryFn: () => quotationsApi.getAll({
       search: searchTerm || undefined,
-      status: filterStatus === 'all' ? undefined : filterStatus
+      status: filterStatus === 'all' ? undefined : filterStatus,
+      sales_rep_id: filterSalesRep === 'all' ? undefined : filterSalesRep
     })
   })
 
@@ -87,6 +93,14 @@ export function QuotationManagement() {
     queryKey: ['quotation-stats'],
     queryFn: () => quotationsApi.getStats()
   })
+
+  // Fetch users for sales rep filter
+  const { data: usersData } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => usersApi.getAll()
+  })
+
+  const users = usersData?.users || []
 
   // Use statistics from API or calculate from local data as fallback
   const stats = useMemo(() => {
@@ -217,7 +231,11 @@ export function QuotationManagement() {
     mutationFn: ({ quotationId, expectedDeliveryDate }: { quotationId: string, expectedDeliveryDate?: string }) =>
       salesOrdersApi.create({
         quotation_id: quotationId,
-        expected_delivery_date: expectedDeliveryDate || undefined
+        expected_delivery_date: expectedDeliveryDate || undefined,
+        down_payment_amount: downPaymentAmount ? parseFloat(downPaymentAmount) : undefined,
+        down_payment_method: downPaymentMethod || undefined,
+        down_payment_date: downPaymentDate || undefined,
+        down_payment_notes: downPaymentNotes || undefined,
       }),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['quotations'] })
@@ -552,10 +570,6 @@ export function QuotationManagement() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => toast.info('Export en cours...')}>
-            <Download className="mr-2 h-4 w-4" />
-            Exporter
-          </Button>
           <Button onClick={() => {
             setEditingQuotation(null)
             setShowBuilder(true)
@@ -647,6 +661,20 @@ export function QuotationManagement() {
                 <SelectItem value="expired">Expiré</SelectItem>
               </SelectContent>
             </Select>
+            <Select value={filterSalesRep} onValueChange={setFilterSalesRep}>
+              <SelectTrigger className="w-[180px]">
+                <Filter className="mr-2 h-4 w-4" />
+                <SelectValue placeholder="Commercial" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tous les commerciaux</SelectItem>
+                {users.map((user: any) => (
+                  <SelectItem key={user.id} value={user.id}>
+                    {user.first_name} {user.last_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Select value={filterPeriod} onValueChange={setFilterPeriod}>
               <SelectTrigger className="w-[150px]">
                 <Calendar className="mr-2 h-4 w-4" />
@@ -729,6 +757,12 @@ export function QuotationManagement() {
                           <Package className="h-3 w-3" />
                           {quotation.line_items_count || 0} article(s)
                         </span>
+                        {quotation.sales_rep_name && (
+                          <span className="flex items-center gap-1 text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded">
+                            <User className="h-3 w-3" />
+                            {quotation.sales_rep_name}
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-4 text-sm">
                         <span className="font-medium">
@@ -863,6 +897,61 @@ export function QuotationManagement() {
               </p>
             </div>
 
+            <div className="border-t pt-4 space-y-4">
+              <h3 className="font-medium text-sm">Acompte (optionnel)</h3>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="down_payment_amount">Montant de l'acompte</Label>
+                  <Input
+                    id="down_payment_amount"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="0.00"
+                    value={downPaymentAmount}
+                    onChange={(e) => setDownPaymentAmount(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="down_payment_method">Mode de paiement</Label>
+                  <Select value={downPaymentMethod} onValueChange={setDownPaymentMethod}>
+                    <SelectTrigger id="down_payment_method">
+                      <SelectValue placeholder="Sélectionner" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="especes">Espèces</SelectItem>
+                      <SelectItem value="carte">Carte bancaire</SelectItem>
+                      <SelectItem value="virement">Virement</SelectItem>
+                      <SelectItem value="cheque">Chèque</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="down_payment_date">Date du paiement</Label>
+                <Input
+                  id="down_payment_date"
+                  type="date"
+                  value={downPaymentDate}
+                  onChange={(e) => setDownPaymentDate(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="down_payment_notes">Notes sur l'acompte</Label>
+                <Input
+                  id="down_payment_notes"
+                  type="text"
+                  placeholder="Notes optionnelles..."
+                  value={downPaymentNotes}
+                  onChange={(e) => setDownPaymentNotes(e.target.value)}
+                />
+              </div>
+            </div>
+
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
               <p className="text-sm text-yellow-900">
                 ⚠️ Cette action va déduire automatiquement les produits du stock.
@@ -876,6 +965,10 @@ export function QuotationManagement() {
                 setShowConvertDialog(false)
                 setQuotationToConvert(null)
                 setExpectedDeliveryDate('')
+                setDownPaymentAmount('')
+                setDownPaymentMethod('')
+                setDownPaymentDate('')
+                setDownPaymentNotes('')
               }}
             >
               Annuler
