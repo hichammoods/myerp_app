@@ -16,7 +16,8 @@
     "migrate:up": "node dist/database/migrate.js up",
     "migrate:down": "node dist/database/migrate.js down",
     "migrate:create": "node dist/database/migrate.js create",
-    "seed": "node dist/database/seed.js",
+    "seed": "ts-node src/database/run-seeds.ts",
+    "seed:prod": "node dist/database/run-seeds.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
