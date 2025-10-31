@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Switch } from '@/components/ui/switch'
 import { toast } from 'react-hot-toast'
-import { contactsApi, productsApi } from '@/services/api'
+import { contactsApi, productsApi, settingsApi } from '@/services/api'
 import {
   FileText,
   User,
@@ -118,8 +118,15 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
     queryFn: () => productsApi.getAll({ limit: 100 })
   })
 
+  // Fetch company settings for default CGV
+  const { data: companySettingsData } = useQuery({
+    queryKey: ['company-settings'],
+    queryFn: () => settingsApi.getCompany()
+  })
+
   const contacts = contactsData?.contacts || []
   const products = productsData || []
+  const companySettings = companySettingsData?.company || null
   const [formData, setFormData] = useState({
     quotation_number: quotation?.quotation_number || generateQuotationNumber(),
     date: quotation?.date || new Date().toISOString().split('T')[0],
@@ -185,6 +192,12 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
   }
 
   function getDefaultTerms() {
+    // Use default CGV from company settings if available, otherwise fall back to hardcoded default
+    if (companySettings?.default_cgv) {
+      return companySettings.default_cgv
+    }
+
+    // Fallback to hardcoded default
     return `Conditions générales de vente:
 • Validité du devis : 30 jours
 • Acompte de 30% à la commande
@@ -283,6 +296,28 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
       })
     }
   }, [quotation, contacts])
+
+  // Update terms_conditions when company settings are loaded (for new quotations)
+  useEffect(() => {
+    if (!quotation && companySettings?.default_cgv) {
+      // Only update if still using the hardcoded default (user hasn't edited it)
+      const hardcodedDefault = `Conditions générales de vente:
+• Validité du devis : 30 jours
+• Acompte de 30% à la commande
+• Solde à la livraison
+• Livraison comprise en France métropolitaine (hors Corse et DOM-TOM)
+• Garantie 2 ans pièces et main d'œuvre
+• Les délais de livraison sont donnés à titre indicatif
+• Tout devis signé vaut bon de commande`
+
+      if (formData.terms_conditions === hardcodedDefault) {
+        setFormData(prev => ({
+          ...prev,
+          terms_conditions: companySettings.default_cgv
+        }))
+      }
+    }
+  }, [companySettings, quotation])
 
   useEffect(() => {
     calculateTotals()

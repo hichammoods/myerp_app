@@ -30,7 +30,8 @@ export function Settings() {
     city: '',
     postal_code: '',
     country: 'France',
-    website: ''
+    website: '',
+    default_cgv: ''
   })
 
   // Update form when data is loaded
@@ -46,7 +47,8 @@ export function Settings() {
         city: companyData.company.city || '',
         postal_code: companyData.company.postal_code || '',
         country: companyData.company.country || 'France',
-        website: companyData.company.website || ''
+        website: companyData.company.website || '',
+        default_cgv: companyData.company.default_cgv || ''
       })
     }
   }, [companyData])
@@ -284,6 +286,23 @@ export function Settings() {
                     />
                   </div>
                 </div>
+
+                {/* Conditions Générales de Vente */}
+                <div className="space-y-2">
+                  <Label htmlFor="default_cgv">Conditions Générales de Vente (par défaut)</Label>
+                  <p className="text-sm text-gray-500">
+                    Ces conditions seront automatiquement ajoutées à chaque nouveau devis
+                  </p>
+                  <textarea
+                    id="default_cgv"
+                    className="w-full px-3 py-2 border rounded-md min-h-[200px] font-mono text-sm"
+                    placeholder="Saisissez vos conditions générales de vente..."
+                    value={companyForm.default_cgv}
+                    onChange={(e) => setCompanyForm({ ...companyForm, default_cgv: e.target.value })}
+                    disabled={isLoading}
+                  />
+                </div>
+
                 <Button
                   type="submit"
                   disabled={isLoading || updateCompanyMutation.isPending}

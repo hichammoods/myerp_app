@@ -49,6 +49,7 @@ router.put('/company', authenticateToken, [
   body('siret').optional().isString().trim(),
   body('tva').optional().isString().trim(),
   body('logo_url').optional().isString().trim(),
+  body('default_cgv').optional().isString(),
 ], async (req: Request, res: Response) => {
   try {
     const errors = validationResult(req);
@@ -70,7 +71,8 @@ router.put('/company', authenticateToken, [
       website,
       siret,
       tva,
-      logo_url
+      logo_url,
+      default_cgv
     } = req.body;
 
     // Check if company settings exist
@@ -82,11 +84,11 @@ router.put('/company', authenticateToken, [
       result = await db.query(`
         INSERT INTO company_settings (
           name, address, city, postal_code, country,
-          phone, email, website, siret, tva, logo_url
+          phone, email, website, siret, tva, logo_url, default_cgv
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         RETURNING *
-      `, [name, address, city, postal_code, country, phone, email, website, siret, tva, logo_url]);
+      `, [name, address, city, postal_code, country, phone, email, website, siret, tva, logo_url, default_cgv]);
     } else {
       // Update existing company settings
       const updateFields: string[] = [];
@@ -95,7 +97,7 @@ router.put('/company', authenticateToken, [
 
       const fieldsToUpdate = {
         name, address, city, postal_code, country,
-        phone, email, website, siret, tva, logo_url
+        phone, email, website, siret, tva, logo_url, default_cgv
       };
 
       Object.entries(fieldsToUpdate).forEach(([key, value]) => {

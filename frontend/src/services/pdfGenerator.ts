@@ -74,6 +74,7 @@ interface SalesOrder {
   downPaymentDate?: Date
   downPaymentNotes?: string
   notes?: string
+  termsAndConditions?: string
   deliveryAddress?: string
   status: string
 }
@@ -100,6 +101,7 @@ interface Invoice {
   amountPaid?: number
   amountDue?: number
   notes?: string
+  termsAndConditions?: string
   paymentTerms?: string
   status: string
 }
@@ -792,6 +794,26 @@ export class PDFGenerator {
       })
     }
 
+    // Terms and conditions for sales order
+    if (salesOrder.termsAndConditions) {
+      this.currentY += 8
+      this.addNewPageIfNeeded(30)
+
+      this.doc.setFont('helvetica', 'bold')
+      this.doc.setFontSize(9)
+      this.doc.setTextColor(this.textColor)
+      this.doc.text('Conditions générales de vente:', this.margin, this.currentY)
+
+      this.currentY += 4
+      this.doc.setFont('helvetica', 'normal')
+      this.doc.setFontSize(7)
+      const termsLines = this.doc.splitTextToSize(salesOrder.termsAndConditions, this.pageWidth - 2 * this.margin)
+      termsLines.forEach((line) => {
+        this.doc.text(line, this.margin, this.currentY)
+        this.currentY += 3
+      })
+    }
+
     // Add page numbers
     const pageCount = this.doc.getNumberOfPages()
     this.doc.setFont('helvetica', 'normal')
@@ -944,6 +966,26 @@ export class PDFGenerator {
       notesLines.forEach((line) => {
         this.doc.text(line, this.margin, this.currentY)
         this.currentY += 4
+      })
+    }
+
+    // Terms and conditions for invoice
+    if (invoice.termsAndConditions) {
+      this.currentY += 8
+      this.addNewPageIfNeeded(30)
+
+      this.doc.setFont('helvetica', 'bold')
+      this.doc.setFontSize(9)
+      this.doc.setTextColor(this.textColor)
+      this.doc.text('Conditions générales de vente:', this.margin, this.currentY)
+
+      this.currentY += 4
+      this.doc.setFont('helvetica', 'normal')
+      this.doc.setFontSize(7)
+      const termsLines = this.doc.splitTextToSize(invoice.termsAndConditions, this.pageWidth - 2 * this.margin)
+      termsLines.forEach((line) => {
+        this.doc.text(line, this.margin, this.currentY)
+        this.currentY += 3
       })
     }
 

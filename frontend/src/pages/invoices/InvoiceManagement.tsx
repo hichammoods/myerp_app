@@ -219,6 +219,7 @@ export function InvoiceManagement() {
         amountPaid: fullInvoice.amount_paid ? parseFloat(fullInvoice.amount_paid) : undefined,
         amountDue: fullInvoice.amount_due ? parseFloat(fullInvoice.amount_due) : undefined,
         notes: fullInvoice.notes || undefined,
+        termsAndConditions: fullInvoice.terms_conditions || undefined,
         paymentTerms: fullInvoice.payment_terms || undefined,
         status: fullInvoice.status,
       }

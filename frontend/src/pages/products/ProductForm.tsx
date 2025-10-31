@@ -124,8 +124,32 @@ export function ProductForm({ onClose, onSubmit, product, categories = [], mater
     return availableFinishes
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    console.log('=== PRODUCT FORM SUBMIT ===')
+    console.log('All productImages:', productImages)
+    console.log('Images count:', productImages.length)
+
+    // Log each image details
+    productImages.forEach((img, index) => {
+      console.log(`Image ${index}:`, {
+        id: img.id,
+        name: img.name,
+        hasFile: !!img.file,
+        hasUrl: !!img.url,
+        hasPreview: !!img.preview,
+        simulated: (img as any).simulated,
+        uploading: img.uploading
+      })
+    })
+
+    // Extract pending image files (simulated images that need real upload)
+    const pendingImages = productImages.filter(img => img.file && (img as any).simulated)
+
+    console.log('Filtered pendingImages:', pendingImages.length)
+    console.log('Pending files:', pendingImages.map(img => img.file?.name))
+
     const data = {
       ...formData,
       materials: materialEntries
@@ -134,11 +158,14 @@ export function ProductForm({ onClose, onSubmit, product, categories = [], mater
           ...m,
           finishId: (m.finishId === 'none' || !m.finishId) ? null : m.finishId,
         })),
-      // Don't include images - they're managed separately via upload/delete endpoints
-      // images: productImages,
+      // Include pending images for upload after creation
+      pendingImages: pendingImages.map(img => img.file),
     }
-    console.log('Submitting product with materials:', JSON.stringify(data.materials, null, 2))
-    onSubmit(data)
+    console.log('Data to submit - pendingImages count:', data.pendingImages.length)
+    console.log('=== END PRODUCT FORM SUBMIT ===')
+
+    // Wait for submission to complete before closing
+    await onSubmit(data)
     onClose()
   }
 

@@ -17,7 +17,7 @@ const router = Router();
 
 // Register new user
 router.post('/register', [
-  body('email').isEmail().normalizeEmail(),
+  body('email').isEmail().trim().toLowerCase(),
   body('password').isLength({ min: 8 }).matches(/^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]/),
   body('first_name').notEmpty().trim(),
   body('last_name').notEmpty().trim(),
@@ -86,16 +86,19 @@ router.post('/register', [
 
 // Login
 router.post('/login', [
-  body('email').isEmail().normalizeEmail(),
+  body('email').isEmail().trim().toLowerCase(),
   body('password').notEmpty(),
 ], async (req: Request, res: Response) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      logger.debug('Login validation errors:', errors.array());
       return res.status(400).json({ errors: errors.array() });
     }
 
     const { email, password } = req.body;
+
+    logger.debug('Login attempt:', { email, passwordLength: password?.length });
 
     // Get user
     const result = await db.query(
@@ -104,7 +107,14 @@ router.post('/login', [
       [email]
     );
 
+    logger.debug('User query result:', {
+      found: result.rows.length,
+      email: email,
+      dbEmail: result.rows[0]?.email
+    });
+
     if (result.rows.length === 0) {
+      logger.warn('Login failed - user not found:', email);
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
@@ -112,11 +122,15 @@ router.post('/login', [
 
     // Check if user is active
     if (!user.is_active) {
+      logger.warn('Login failed - account not active:', email);
       return res.status(403).json({ error: 'Account is not active' });
     }
 
     // Verify password
+    logger.debug('Comparing password for user:', email);
     const isValid = await comparePassword(password, user.password_hash);
+    logger.debug('Password comparison result:', { email, isValid });
+
     if (!isValid) {
       // Log failed attempt (table doesn't exist yet)
       // await db.query(
@@ -262,7 +276,7 @@ router.post('/change-password', authenticateToken, [
 
 // Request password reset
 router.post('/forgot-password', [
-  body('email').isEmail().normalizeEmail(),
+  body('email').isEmail().trim().toLowerCase(),
 ], async (req: Request, res: Response) => {
   try {
     const errors = validationResult(req);

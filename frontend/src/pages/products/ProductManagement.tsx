@@ -56,12 +56,14 @@ export function ProductManagement() {
   // Product mutations
   const createProductMutation = useMutation({
     mutationFn: (data: any) => productsApi.create(data),
-    onSuccess: () => {
+    onSuccess: (response: any) => {
       queryClient.invalidateQueries({ queryKey: ['products'] })
       queryClient.invalidateQueries({ queryKey: ['categories'] })
       toast.success('Produit créé avec succès')
-      setShowProductForm(false)
-      setEditingItem(null)
+      // Don't close form here - let handleProductSubmit complete image uploads first
+
+      // Return the created product for potential image uploads
+      return response.product
     },
     onError: (error: any) => {
       const errorMessage = error?.response?.data?.error || 'Erreur lors de la création du produit'
@@ -98,10 +100,60 @@ export function ProductManagement() {
 
   // Handle product submit (create or update)
   const handleProductSubmit = async (data: any) => {
+    console.log('handleProductSubmit called with data:', data)
+    const { pendingImages, ...productData } = data
+    console.log('Extracted pendingImages:', pendingImages?.length, 'images')
+
     if (editingItem?.id) {
-      await updateProductMutation.mutateAsync({ id: editingItem.id, data })
+      console.log('Updating existing product:', editingItem.id)
+      await updateProductMutation.mutateAsync({ id: editingItem.id, data: productData })
     } else {
-      await createProductMutation.mutateAsync(data)
+      console.log('Creating new product...')
+      // Create product and get the new product ID
+      const response = await createProductMutation.mutateAsync(productData)
+      console.log('Product created response:', response)
+
+      // Extract the actual product from the response
+      const createdProduct = response?.product
+      console.log('Extracted product:', createdProduct)
+      console.log('Product ID:', createdProduct?.id)
+
+      // Upload pending images if any
+      if (createdProduct?.id && pendingImages && pendingImages.length > 0) {
+        console.log('Uploading', pendingImages.length, 'pending images for product', createdProduct.id)
+
+        // Upload each image
+        const uploadPromises = pendingImages.map(async (file: File, index: number) => {
+          try {
+            console.log(`Uploading image ${index + 1}/${pendingImages.length}:`, file.name)
+            const result = await productsApi.uploadImage(createdProduct.id, file)
+            console.log(`Image ${index + 1} uploaded successfully:`, result)
+            return result
+          } catch (error) {
+            console.error('Failed to upload image:', error)
+            toast.error(`Erreur lors du téléchargement de ${file.name}`)
+            throw error
+          }
+        })
+
+        try {
+          await Promise.all(uploadPromises)
+          console.log('All images uploaded successfully')
+          toast.success('Images téléchargées avec succès')
+        } catch (error) {
+          console.error('Some images failed to upload:', error)
+        }
+
+        // Refresh products to show the uploaded images
+        queryClient.invalidateQueries({ queryKey: ['products'] })
+        queryClient.invalidateQueries({ queryKey: ['products', createdProduct.id] })
+      } else {
+        console.log('No pending images to upload or missing product ID', {
+          hasProductId: !!createdProduct?.id,
+          hasPendingImages: !!(pendingImages && pendingImages.length > 0),
+          pendingImagesLength: pendingImages?.length
+        })
+      }
     }
   }
 

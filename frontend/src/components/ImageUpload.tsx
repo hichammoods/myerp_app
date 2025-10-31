@@ -252,6 +252,7 @@ export function ImageUpload({
   }
 
   const simulateUpload = (imageId: string) => {
+    console.log('simulateUpload started for imageId:', imageId)
     let progress = 0
     const interval = setInterval(() => {
       progress += 10
@@ -259,11 +260,13 @@ export function ImageUpload({
 
       if (progress >= 100) {
         clearInterval(interval)
+        console.log('simulateUpload complete for imageId:', imageId, 'setting simulated: true')
         const updatedImages = imagesRef.current.map(img =>
           img.id === imageId
-            ? { ...img, uploading: false, url: `/uploads/${img.name}` }
+            ? { ...img, uploading: false, simulated: true }
             : img
         )
+        console.log('Updated images after simulation:', updatedImages)
         onImagesChange(updatedImages)
         toast.success('Image préparée (sera téléchargée à la sauvegarde)')
       }
@@ -407,7 +410,7 @@ export function ImageUpload({
               <Card key={image.id} className="relative group overflow-hidden">
                 {/* Image */}
                 <div className="aspect-square bg-gray-100 relative">
-                  {image.preview || image.url ? (
+                  {(image.preview || image.url) ? (
                     <img
                       src={image.preview || image.url}
                       alt={image.name}

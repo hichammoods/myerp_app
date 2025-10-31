@@ -282,8 +282,8 @@ router.post('/', authenticateToken, [
           subtotal, discount_amount, tax_amount,
           shipping_cost, installation_cost, total_amount,
           amount_paid, amount_due,
-          payment_terms, notes
-        ) VALUES ($1, $2, $3, CURRENT_DATE, $4, 'brouillon', $5, $6, $7, $8, $9, $10, 0, $10, $11, $12)
+          payment_terms, notes, terms_conditions
+        ) VALUES ($1, $2, $3, CURRENT_DATE, $4, 'brouillon', $5, $6, $7, $8, $9, $10, 0, $10, $11, $12, $13)
         RETURNING *`,
         [
           sales_order_id,
@@ -298,6 +298,7 @@ router.post('/', authenticateToken, [
           salesOrder.total_amount,
           payment_terms || salesOrder.payment_terms || '30 jours',
           notes || salesOrder.notes,
+          salesOrder.terms_conditions || null,
         ]
       );
 

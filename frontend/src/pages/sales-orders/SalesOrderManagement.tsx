@@ -284,6 +284,7 @@ export function SalesOrderManagement() {
         downPaymentDate: fullOrder.down_payment_date ? new Date(fullOrder.down_payment_date) : undefined,
         downPaymentNotes: fullOrder.down_payment_notes || undefined,
         notes: fullOrder.notes || undefined,
+        termsAndConditions: fullOrder.terms_conditions || undefined,
         deliveryAddress: fullOrder.delivery_address || undefined,
         status: fullOrder.status,
       }

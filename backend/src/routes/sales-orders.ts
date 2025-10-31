@@ -312,8 +312,9 @@ router.post('/', authenticateToken, [
           status, subtotal, discount_amount, tax_amount,
           shipping_cost, installation_cost, total_amount,
           delivery_address, notes, payment_terms, delivery_terms,
-          down_payment_amount, down_payment_method, down_payment_date, down_payment_notes
-        ) VALUES ($1, $2, CURRENT_DATE, $3, 'en_cours', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+          down_payment_amount, down_payment_method, down_payment_date, down_payment_notes,
+          terms_conditions
+        ) VALUES ($1, $2, CURRENT_DATE, $3, 'en_cours', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
         RETURNING *`,
         [
           quotation_id,
@@ -333,6 +334,7 @@ router.post('/', authenticateToken, [
           down_payment_method || null,
           down_payment_date || null,
           down_payment_notes || null,
+          quotation.terms_conditions || null,
         ]
       );
 
