@@ -64,7 +64,7 @@ export function Layout() {
       )}>
         <div className="flex flex-col h-full">
           <div className="flex items-center justify-center h-16 border-b border-gray-200 dark:border-gray-700">
-            <h1 className="text-2xl font-bold text-gray-800 dark:text-white">MyERP</h1>
+            <h1 className="text-lg font-bold text-gray-800 dark:text-white">MADECO DESIGN ERP</h1>
           </div>
 
           <nav className="flex-1 px-2 py-4 space-y-1">

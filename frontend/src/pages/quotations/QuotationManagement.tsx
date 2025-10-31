@@ -398,7 +398,7 @@ export function QuotationManagement() {
 
       // Fetch company information from API
       let company = {
-        name: 'MyERP Furniture',
+        name: 'MADECO DESIGN',
         address: '123 Rue de la République',
         city: 'Paris',
         postalCode: '75001',

@@ -35,7 +35,7 @@ export function Login() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold text-center">MyERP</CardTitle>
+          <CardTitle className="text-2xl font-bold text-center">MADECO DESIGN ERP</CardTitle>
           <CardDescription className="text-center">
             Système de Gestion pour Entreprise de Meubles
           </CardDescription>
