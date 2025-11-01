@@ -4,8 +4,12 @@ FROM node:18-alpine AS builder
 # Set working directory
 WORKDIR /app
 
-# Install dependencies for building (Python for node-gyp, etc.)
-RUN apk add --no-cache python3 make g++
+# Install dependencies for building (Python for node-gyp, etc.) and Chromium for Puppeteer
+RUN apk add --no-cache python3 make g++ chromium
+
+# Skip Puppeteer's Chrome download - we'll use system Chromium
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 # Copy package files
 COPY package*.json ./
@@ -27,8 +31,12 @@ RUN npm prune --production
 # Production stage
 FROM node:18-alpine
 
-# Install dumb-init for proper signal handling
-RUN apk add --no-cache dumb-init
+# Install dumb-init for proper signal handling and Chromium for Puppeteer
+RUN apk add --no-cache dumb-init chromium nss freetype harfbuzz ca-certificates ttf-freefont
+
+# Skip Puppeteer's Chrome download - we'll use system Chromium
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 # Create app user and group
 RUN addgroup -g 1001 -S nodejs && \
