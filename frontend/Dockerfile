@@ -6,8 +6,8 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci
+# Install dependencies (use legacy-peer-deps for @react-email compatibility)
+RUN npm ci --legacy-peer-deps
 
 # Copy source code
 COPY . .
