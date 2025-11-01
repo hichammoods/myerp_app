@@ -9,7 +9,6 @@
     "strictNullChecks": false,
     "strictFunctionTypes": false,
     "noImplicitAny": false,
-    "suppressImplicitAnyIndexErrors": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": false,
