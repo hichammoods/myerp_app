@@ -23,6 +23,7 @@ import inventoryRouter from './routes/inventory.routes';
 import usersRouter from './routes/users';
 import backupRouter from './routes/backup';
 import testRouter from './routes/test-simple'; // Ultra-simple test routes
+import productCustomizationRouter from './routes/product-customization'; // Product customization endpoints
 
 export class App {
   public express: Application;
@@ -86,6 +87,7 @@ export class App {
     this.express.use('/api/auth', authRouter);
     this.express.use('/api/users', usersRouter);
     this.express.use('/api/contacts', contactRouter);
+    this.express.use('/api/products', productCustomizationRouter); // Product customization BEFORE main router
     this.express.use('/api/products', productRouter);
     this.express.use('/api/quotations', quotationRouter);
     this.express.use('/api/sales-orders', salesOrderRouter);

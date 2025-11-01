@@ -236,7 +236,30 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
             'tax_amount', ql.tax_amount,
             'line_total', ql.line_total,
             'notes', ql.notes,
-            'is_optional', ql.is_optional
+            'is_optional', ql.is_optional,
+            'is_customized', ql.is_customized,
+            'base_product_id', ql.base_product_id,
+            'custom_components', (
+              SELECT COALESCE(json_agg(
+                jsonb_build_object(
+                  'id', qlc.id,
+                  'component_name', qlc.component_name,
+                  'component_type', qlc.component_type,
+                  'material_id', qlc.material_id,
+                  'material_name', m.name,
+                  'finish_id', qlc.finish_id,
+                  'finish_name', f.name,
+                  'quantity', qlc.quantity,
+                  'unit_cost', qlc.unit_cost,
+                  'upcharge_percentage', qlc.upcharge_percentage,
+                  'notes', qlc.notes
+                )
+              ), '[]'::json)
+              FROM quotation_line_components qlc
+              LEFT JOIN materials m ON qlc.material_id = m.id
+              LEFT JOIN finishes f ON qlc.finish_id = f.id
+              WHERE qlc.quotation_line_id = ql.id
+            )
           ) ORDER BY ql.line_number
         ) FILTER (WHERE ql.id IS NOT NULL) as line_items
       FROM quotations q
@@ -413,12 +436,15 @@ router.post('/', authenticateToken, [
         const line_discount_percent = item.discount_percent || 0;
         const line_discount_amount = item.discount_amount || 0;
 
-        await client.query(
+        // Insert quotation line with customization fields
+        const lineResult = await client.query(
           `INSERT INTO quotation_lines (
             quotation_id, product_id, product_name, product_sku, description,
             quantity, unit_price, discount_percent, discount_amount,
-            tax_rate, tax_amount, line_total, notes, line_number
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+            tax_rate, tax_amount, line_total, notes, line_number,
+            is_customized, base_product_id
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+          RETURNING id`,
           [
             quotation.id,
             item.product_id || null,
@@ -433,9 +459,36 @@ router.post('/', authenticateToken, [
             item.tax_amount || 0,
             item.line_total,
             item.notes || null,
-            i + 1
+            i + 1,
+            item.is_customized || false,
+            item.base_product_id || null
           ]
         );
+
+        const quotationLineId = lineResult.rows[0].id;
+
+        // Insert custom components if this is a customized product
+        if (item.is_customized && item.custom_components && Array.isArray(item.custom_components)) {
+          for (const component of item.custom_components) {
+            await client.query(
+              `INSERT INTO quotation_line_components (
+                quotation_line_id, component_name, component_type,
+                material_id, finish_id, quantity, unit_cost, upcharge_percentage, notes
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+              [
+                quotationLineId,
+                component.component_name || '',
+                component.component_type || 'material',
+                component.material_id || null,
+                component.finish_id || null,
+                component.quantity || 1.0,
+                component.unit_cost || 0,
+                component.upcharge_percentage || 0,
+                component.notes || null
+              ]
+            );
+          }
+        }
       }
 
       return quotation;
@@ -634,18 +687,22 @@ router.put('/:id', authenticateToken, [
         total_amount: quotation.total_amount
       });
 
-      // Delete existing line items
+      // Delete existing line items (CASCADE will delete quotation_line_components)
       await client.query('DELETE FROM quotation_lines WHERE quotation_id = $1', [id]);
 
       // Insert updated line items
       for (let i = 0; i < line_items.length; i++) {
         const item = line_items[i];
-        await client.query(
+
+        // Insert quotation line with customization fields
+        const lineResult = await client.query(
           `INSERT INTO quotation_lines (
             quotation_id, product_id, product_name, product_sku, description,
             quantity, unit_price, discount_percent, discount_amount,
-            tax_rate, tax_amount, line_total, notes, line_number
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+            tax_rate, tax_amount, line_total, notes, line_number,
+            is_customized, base_product_id
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+          RETURNING id`,
           [
             quotation.id,
             item.product_id || null,
@@ -660,9 +717,36 @@ router.put('/:id', authenticateToken, [
             item.tax_amount || 0,
             item.line_total,
             item.notes || null,
-            i + 1
+            i + 1,
+            item.is_customized || false,
+            item.base_product_id || null
           ]
         );
+
+        const quotationLineId = lineResult.rows[0].id;
+
+        // Insert custom components if this is a customized product
+        if (item.is_customized && item.custom_components && Array.isArray(item.custom_components)) {
+          for (const component of item.custom_components) {
+            await client.query(
+              `INSERT INTO quotation_line_components (
+                quotation_line_id, component_name, component_type,
+                material_id, finish_id, quantity, unit_cost, upcharge_percentage, notes
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+              [
+                quotationLineId,
+                component.component_name || '',
+                component.component_type || 'material',
+                component.material_id || null,
+                component.finish_id || null,
+                component.quantity || 1.0,
+                component.unit_cost || 0,
+                component.upcharge_percentage || 0,
+                component.notes || null
+              ]
+            );
+          }
+        }
       }
 
       return quotation;

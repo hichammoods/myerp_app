@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Switch } from '@/components/ui/switch'
 import { toast } from 'react-hot-toast'
 import { contactsApi, productsApi, settingsApi } from '@/services/api'
+import ProductCustomizationModal from '@/components/ProductCustomizationModal'
 import {
   FileText,
   User,
@@ -96,6 +97,18 @@ interface LineItem {
   is_optional?: boolean
   stock_quantity?: number // Available stock for the product
   image_url?: string // Product image URL from MinIO
+  is_customized?: boolean // Indicates if this is a customized product
+  base_product_id?: string // Reference to the original product
+  custom_components?: Array<{
+    component_name: string
+    component_type: string
+    material_id?: string
+    finish_id?: string
+    quantity: number
+    unit_cost: number
+    upcharge_percentage: number
+    notes?: string
+  }>
 }
 
 interface Section {
@@ -161,8 +174,10 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
 
   const [showProductDialog, setShowProductDialog] = useState(false)
   const [showMaterialDialog, setShowMaterialDialog] = useState(false)
+  const [showCustomizationModal, setShowCustomizationModal] = useState(false)
   const [selectedSectionId, setSelectedSectionId] = useState<string>('')
   const [selectedProduct, setSelectedProduct] = useState<any>(null)
+  const [productToCustomize, setProductToCustomize] = useState<any>(null)
   const [editingItem, setEditingItem] = useState<LineItem | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
 
@@ -232,7 +247,10 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
           notes: item.notes || '',
           is_optional: item.is_optional || false,
           stock_quantity: currentProduct?.stockQuantity || 0,  // Get fresh stock from products
-          image_url: currentProduct ? getProductImageUrl(currentProduct) : undefined // Get image from product
+          image_url: currentProduct ? getProductImageUrl(currentProduct) : undefined, // Get image from product
+          is_customized: item.is_customized || false,
+          base_product_id: item.base_product_id || null,
+          custom_components: item.custom_components || []
         }
       })
 
@@ -428,6 +446,101 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
     setShowProductDialog(false)
   }
 
+  const handleCustomizationConfirm = (customizedProduct: any) => {
+    // Set tax rate based on contact type
+    const defaultTaxRate = formData.contact_details?.type === 'individual' ? 0 : 20
+
+    if (editingItem) {
+      // Update existing item
+      const updatedItem: LineItem = {
+        ...editingItem,
+        product_name: customizedProduct.product_name,
+        product_sku: customizedProduct.product_sku,
+        unit_price: customizedProduct.unit_price,
+        quantity: customizedProduct.quantity,
+        custom_components: customizedProduct.custom_components,
+        line_total: customizedProduct.unit_price * customizedProduct.quantity,
+      }
+
+      // Recalculate item totals
+      recalculateLineItem(updatedItem)
+
+      setSections(sections.map(section =>
+        section.id === selectedSectionId
+          ? {
+              ...section,
+              items: section.items.map(item =>
+                item.id === editingItem.id ? updatedItem : item
+              )
+            }
+          : section
+      ))
+
+      setEditingItem(null)
+    } else {
+      // Add new item
+      const newItem: LineItem = {
+        id: Date.now().toString(),
+        product_id: customizedProduct.product_id,
+        product_name: customizedProduct.product_name,
+        product_sku: customizedProduct.product_sku,
+        description: '', // Keep empty - customization details are in custom_components
+        quantity: customizedProduct.quantity,
+        unit_price: customizedProduct.unit_price,
+        discount_percent: formData.contact_details?.discount_rate || 0,
+        discount_amount: 0,
+        tax_rate: defaultTaxRate,
+        tax_amount: 0,
+        line_total: customizedProduct.unit_price * customizedProduct.quantity,
+        is_customized: true,
+        base_product_id: customizedProduct.base_product_id,
+        custom_components: customizedProduct.custom_components,
+        notes: '',
+        is_optional: false
+      }
+
+      // Recalculate item totals
+      recalculateLineItem(newItem)
+
+      setSections(sections.map(section =>
+        section.id === selectedSectionId
+          ? { ...section, items: [...section.items, newItem] }
+          : section
+      ))
+    }
+
+    setShowCustomizationModal(false)
+    setProductToCustomize(null)
+  }
+
+  const handleOpenCustomization = (product: any, sectionId: string) => {
+    setProductToCustomize(product)
+    setSelectedSectionId(sectionId)
+    setShowCustomizationModal(true)
+    setShowProductDialog(false) // Close the product selection dialog
+  }
+
+  const handleEditCustomizedItem = (item: LineItem, sectionId: string) => {
+    // Store the item being edited
+    setEditingItem(item)
+    setSelectedSectionId(sectionId)
+
+    // Prepare product data for the customization modal
+    // The modal expects a product object with base price info
+    const productForCustomization = {
+      id: item.base_product_id || item.product_id,
+      name: item.product_name.replace(' (Personnalisé)', ''), // Remove the suffix
+      sku: item.product_sku,
+      price_ht: item.unit_price,
+      unit_price: item.unit_price,
+      // Pass existing custom components so they can be pre-populated in the modal
+      existing_custom_components: item.custom_components || []
+    }
+
+    setProductToCustomize(productForCustomization)
+    setShowCustomizationModal(true)
+  }
+
   const recalculateLineItem = (item: LineItem) => {
     const quantity = parseFloat(item.quantity as any) || 0
     const unitPrice = parseFloat(item.unit_price as any) || 0
@@ -579,7 +692,10 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
         tax_rate: parseFloat(item.tax_rate as any) || 0,
         tax_amount: parseFloat(item.tax_amount as any) || 0,
         line_total: parseFloat(item.line_total as any) || 0,
-        notes: item.notes || null
+        notes: item.notes || null,
+        is_customized: item.is_customized || false,
+        base_product_id: item.base_product_id || null,
+        custom_components: item.custom_components || null
       }))
     )
 
@@ -984,32 +1100,57 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
                                     )}
                                   </div>
                                   <div className="flex-1 min-w-0">
-                                    <h4 className="font-medium text-sm truncate">{item.product_name}</h4>
+                                    <Input
+                                      type="text"
+                                      value={item.product_name}
+                                      onChange={(e) => handleUpdateLineItem(
+                                        section.id,
+                                        item.id,
+                                        'product_name',
+                                        e.target.value
+                                      )}
+                                      className="font-medium text-sm mb-1"
+                                      placeholder="Nom du produit"
+                                    />
                                     {item.product_sku && (
                                       <p className="text-xs text-gray-500">SKU: {item.product_sku}</p>
                                     )}
-                                    {item.description && (
-                                      <p className="text-xs text-gray-600 line-clamp-2">{item.description}</p>
-                                    )}
-                                    {/* Materials inline */}
-                                    {(item as any).is_customizable && (item as any).materials && (item as any).materials.length > 0 && (
-                                      <div className="mt-1">
-                                        <span className="text-xs text-gray-500">
-                                          {`${(item as any).materials[0].materialName} - ${(item as any).materials[0].finishName}`}
-                                          {(item as any).materials.length > 1 && ` +${(item as any).materials.length - 1}`}
-                                        </span>
-                                        <Button
-                                          type="button"
-                                          size="sm"
-                                          variant="ghost"
-                                          className="h-5 px-1 ml-1"
-                                          onClick={() => {
-                                            setEditingItem(item)
-                                            setShowMaterialDialog(true)
-                                          }}
-                                        >
-                                          <Edit2 className="h-3 w-3" />
-                                        </Button>
+                                    <Input
+                                      type="text"
+                                      value={item.description || ''}
+                                      onChange={(e) => handleUpdateLineItem(
+                                        section.id,
+                                        item.id,
+                                        'description',
+                                        e.target.value
+                                      )}
+                                      className="text-xs text-gray-600 mt-1"
+                                      placeholder="Description (optionnel)"
+                                    />
+                                    {/* Custom Components Display */}
+                                    {item.is_customized && item.custom_components && item.custom_components.length > 0 && (
+                                      <div className="mt-2 p-2 bg-indigo-50 rounded border border-indigo-200">
+                                        <div className="flex items-center gap-1 mb-1">
+                                          <Layers className="h-3 w-3 text-indigo-600" />
+                                          <span className="text-xs font-medium text-indigo-900">Produit personnalisé</span>
+                                        </div>
+                                        {item.custom_components.map((comp: any, idx: number) => (
+                                          <div key={idx} className="text-xs text-indigo-700 ml-4 mb-1">
+                                            <div className="font-medium">• {comp.component_name}</div>
+                                            {comp.quantity && (
+                                              <div className="ml-3 text-indigo-600">Quantité: {comp.quantity}</div>
+                                            )}
+                                            {comp.material_name && (
+                                              <div className="ml-3 text-indigo-600">Matériau: {comp.material_name}</div>
+                                            )}
+                                            {comp.finish_name && (
+                                              <div className="ml-3 text-indigo-600">Finition: {comp.finish_name}</div>
+                                            )}
+                                            {comp.notes && (
+                                              <div className="ml-3 text-indigo-500 italic">Note: {comp.notes}</div>
+                                            )}
+                                          </div>
+                                        ))}
                                       </div>
                                     )}
                                     {/* Stock Indicator */}
@@ -1088,6 +1229,18 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
 
                               {/* Actions - 1 column */}
                               <div className="col-span-1 flex flex-col gap-1">
+                                {item.is_customized && (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => handleEditCustomizedItem(item, section.id)}
+                                    className="h-6 px-2 text-indigo-600"
+                                    title="Modifier la personnalisation"
+                                  >
+                                    <Edit2 className="h-3 w-3" />
+                                  </Button>
+                                )}
                                 <Button
                                   type="button"
                                   size="sm"
@@ -1422,8 +1575,7 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
                     filteredProducts.map((product: any) => (
                       <Card
                         key={product.id}
-                        className="cursor-pointer hover:shadow-md transition-shadow"
-                        onClick={() => handleAddProduct(product)}
+                        className="hover:shadow-md transition-shadow"
                       >
                         <CardContent className="p-4">
                           <div className="flex justify-between items-start">
@@ -1452,10 +1604,25 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
                                 </div>
                               </div>
                             </div>
-                            <Button size="sm" type="button">
-                              <Plus className="h-4 w-4 mr-1" />
-                              Ajouter
-                            </Button>
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                type="button"
+                                variant="outline"
+                                onClick={() => handleOpenCustomization(product, selectedSectionId)}
+                              >
+                                <Layers className="h-4 w-4 mr-1" />
+                                Personnaliser
+                              </Button>
+                              <Button
+                                size="sm"
+                                type="button"
+                                onClick={() => handleAddProduct(product)}
+                              >
+                                <Plus className="h-4 w-4 mr-1" />
+                                Ajouter
+                              </Button>
+                            </div>
                           </div>
                         </CardContent>
                       </Card>
@@ -1548,6 +1715,19 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
           </Tabs>
         </DialogContent>
       </Dialog>
+
+      {/* Product Customization Modal */}
+      {productToCustomize && (
+        <ProductCustomizationModal
+          isOpen={showCustomizationModal}
+          onClose={() => {
+            setShowCustomizationModal(false)
+            setProductToCustomize(null)
+          }}
+          product={productToCustomize}
+          onConfirm={handleCustomizationConfirm}
+        />
+      )}
     </form>
   )
 }

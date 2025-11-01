@@ -241,7 +241,26 @@ export function QuotationManagement() {
       queryClient.invalidateQueries({ queryKey: ['quotations'] })
       queryClient.invalidateQueries({ queryKey: ['sales-orders'] })
       queryClient.invalidateQueries({ queryKey: ['quotation-stats'] })
+
+      // Show success message
       toast.success(`Commande ${data.order_number} créée avec succès`)
+
+      // Show stock warnings if any
+      if (data.stockWarnings && data.stockWarnings.length > 0) {
+        // Show a warning toast with the first warning
+        toast.warning(`Stock insuffisant: ${data.stockWarnings[0]}`, {
+          duration: 6000,
+        })
+
+        // Log all warnings to console for reference
+        if (data.stockWarnings.length > 1) {
+          console.warn('Stock warnings:', data.stockWarnings)
+          toast.warning(`${data.stockWarnings.length - 1} autre(s) alerte(s) de stock. Voir la console.`, {
+            duration: 4000,
+          })
+        }
+      }
+
       setShowConvertDialog(false)
       setQuotationToConvert(null)
       setExpectedDeliveryDate('')
@@ -453,15 +472,37 @@ export function QuotationManagement() {
         const taxAmount = (afterDiscount * item.tax_rate) / 100
         const total = afterDiscount + taxAmount
 
+        // Build description with custom components if present
+        let description = item.product_name
+
+        // Add custom components details if this is a customized product
+        if (item.is_customized && item.custom_components && item.custom_components.length > 0) {
+          description += '\nPersonnalisation:'
+          item.custom_components.forEach((comp: any) => {
+            description += `\n  • ${comp.component_name}`
+            if (comp.quantity) description += `\n    Quantité: ${comp.quantity}`
+            if (comp.material_name) description += `\n    Matériau: ${comp.material_name}`
+            if (comp.finish_name) description += `\n    Finition: ${comp.finish_name}`
+            if (comp.notes) description += `\n    Note: ${comp.notes}`
+          })
+        }
+
+        // Add user description if present
+        if (item.description && item.description.trim()) {
+          description += '\n' + item.description
+        }
+
         return {
           id: item.id,
-          description: `${item.product_name}${item.description ? '\n' + item.description : ''}`,
+          description,
           quantity: item.quantity,
           unitPrice: item.unit_price,
           discount: item.discount_percent || 0,
           discountType: 'percent' as const,
           tax: item.tax_rate || 20,
-          total: item.line_total || total
+          total: item.line_total || total,
+          is_customized: item.is_customized,
+          custom_components: item.custom_components
         }
       })
 

@@ -263,16 +263,38 @@ export function SalesOrderManagement() {
           phone: fullOrder.contact_phone || undefined,
           email: fullOrder.contact_email || undefined,
         },
-        items: (fullOrder.items || []).map((item: any) => ({
-          id: item.id,
-          description: item.product_name + (item.description ? `\n${item.description}` : ''),
-          quantity: parseFloat(item.quantity),
-          unitPrice: parseFloat(item.unit_price),
-          discount: parseFloat(item.discount_percent) || 0,
-          discountType: 'percent' as const,
-          tax: parseFloat(item.tax_rate) || 20,
-          total: parseFloat(item.line_total),
-        })),
+        items: (fullOrder.items || []).map((item: any) => {
+          // Build description with custom components if present
+          let description = item.product_name
+
+          // Add custom components details if this is a customized product
+          if (item.is_customized && item.custom_components && item.custom_components.length > 0) {
+            description += '\nPersonnalisation:'
+            item.custom_components.forEach((comp: any) => {
+              description += `\n  • ${comp.component_name}`
+              if (comp.quantity) description += `\n    Quantité: ${comp.quantity}`
+              if (comp.material_name) description += `\n    Matériau: ${comp.material_name}`
+              if (comp.finish_name) description += `\n    Finition: ${comp.finish_name}`
+              if (comp.notes) description += `\n    Note: ${comp.notes}`
+            })
+          }
+
+          // Add user description if present
+          if (item.description && item.description.trim()) {
+            description += '\n' + item.description
+          }
+
+          return {
+            id: item.id,
+            description,
+            quantity: parseFloat(item.quantity),
+            unitPrice: parseFloat(item.unit_price),
+            discount: parseFloat(item.discount_percent) || 0,
+            discountType: 'percent' as const,
+            tax: parseFloat(item.tax_rate) || 20,
+            total: parseFloat(item.line_total),
+          }
+        }),
         subtotal: parseFloat(fullOrder.subtotal),
         totalDiscount: parseFloat(fullOrder.discount_amount) || 0,
         shippingCost: parseFloat(fullOrder.shipping_cost) || 0,
@@ -679,6 +701,20 @@ export function SalesOrderManagement() {
                               <div>{item.product_name}</div>
                               {item.product_sku && (
                                 <div className="text-xs text-gray-500">SKU: {item.product_sku}</div>
+                              )}
+                              {item.is_customized && item.custom_components && item.custom_components.length > 0 && (
+                                <div className="mt-2 text-xs">
+                                  <div className="font-semibold text-blue-600">Personnalisation:</div>
+                                  {item.custom_components.map((comp: any, compIdx: number) => (
+                                    <div key={compIdx} className="ml-2 mt-1 text-gray-600 dark:text-gray-400">
+                                      <div className="font-medium">• {comp.component_name}</div>
+                                      {comp.quantity && <div className="ml-4">Quantité: {comp.quantity}</div>}
+                                      {comp.material_name && <div className="ml-4">Matériau: {comp.material_name}</div>}
+                                      {comp.finish_name && <div className="ml-4">Finition: {comp.finish_name}</div>}
+                                      {comp.notes && <div className="ml-4 italic">Note: {comp.notes}</div>}
+                                    </div>
+                                  ))}
+                                </div>
                               )}
                             </td>
                             <td className="text-right p-2">{item.quantity}</td>

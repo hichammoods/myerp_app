@@ -196,7 +196,10 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
             'discount_amount', ii.discount_amount,
             'tax_rate', ii.tax_rate,
             'tax_amount', ii.tax_amount,
-            'line_total', ii.line_total
+            'line_total', ii.line_total,
+            'is_customized', ii.is_customized,
+            'base_product_id', ii.base_product_id,
+            'custom_components', ii.custom_components
           ) ORDER BY ii.created_at
         ) FILTER (WHERE ii.id IS NOT NULL) as items
       FROM invoices i
@@ -310,8 +313,9 @@ router.post('/', authenticateToken, [
           `INSERT INTO invoice_items (
             invoice_id, product_id, product_name, product_sku,
             description, quantity, unit_price, discount_percent,
-            discount_amount, tax_rate, tax_amount, line_total
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+            discount_amount, tax_rate, tax_amount, line_total,
+            is_customized, base_product_id, custom_components
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
           [
             invoice.id,
             item.product_id,
@@ -325,6 +329,9 @@ router.post('/', authenticateToken, [
             item.tax_rate,
             item.tax_amount,
             item.line_total,
+            item.is_customized || false,
+            item.base_product_id || null,
+            item.custom_components ? JSON.stringify(item.custom_components) : null,
           ]
         );
       }

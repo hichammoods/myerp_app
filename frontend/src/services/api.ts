@@ -59,12 +59,8 @@ api.interceptors.response.use(
       }
     }
 
-    // Show error message
-    if (error.response?.data?.error) {
-      toast.error(error.response.data.error);
-    } else if (error.message) {
-      toast.error(error.message);
-    }
+    // Don't show automatic error toast here - let individual mutations handle their own errors
+    // This prevents duplicate error messages
 
     return Promise.reject(error);
   }
@@ -214,6 +210,25 @@ export const productsApi = {
 
   deleteFinish: async (id: string) => {
     const response = await api.delete(`/products/finishes/${id}`);
+    return response.data;
+  },
+
+  // Product Customization API
+  getProductComponents: async (productId: string) => {
+    const response = await api.get(`/products/${productId}/components`);
+    return response.data;
+  },
+
+  calculateCustomPrice: async (payload: {
+    product_id: string;
+    base_price: number;
+    custom_components: Array<{
+      component_name: string;
+      material_id?: string;
+      finish_id?: string;
+    }>;
+  }) => {
+    const response = await api.post('/products/calculate-custom-price', payload);
     return response.data;
   },
 };

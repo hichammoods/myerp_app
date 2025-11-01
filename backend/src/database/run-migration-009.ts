@@ -1,32 +1,42 @@
 import { Pool } from 'pg';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as dotenv from 'dotenv';
 
-const pool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT || '5432'),
-  database: process.env.DB_NAME || 'myerp_db',
-  user: process.env.DB_USER || 'myerp',
-  password: process.env.DB_PASSWORD || 'myerp_password',
-});
+// Load environment variables
+dotenv.config({ path: path.join(__dirname, '../../.env') });
 
 async function runMigration() {
-  const client = await pool.connect();
-  try {
-    const migrationPath = path.join(__dirname, 'migrations', '009_update_users_for_rbac.sql');
-    const sql = fs.readFileSync(migrationPath, 'utf8');
+  // Use DATABASE_URL from environment
+  const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+  });
 
-    console.log('Running migration 009_update_users_for_rbac.sql...');
-    await client.query(sql);
-    console.log('✅ Migration completed successfully!');
+  try {
+    console.log('Starting migration 009: Product customization...');
+    console.log('Database:', process.env.DATABASE_URL?.replace(/:([^:@]+)@/, ':****@'));
+
+    const migrationSQL = fs.readFileSync(
+      path.join(__dirname, 'migrations', '009_add_product_customization.sql'),
+      'utf8'
+    );
+
+    await pool.query(migrationSQL);
+
+    console.log('✅ Migration 009 completed successfully!');
+    console.log('Created:');
+    console.log('  - quotation_line_components table');
+    console.log('  - customization fields in quotation_lines');
+    console.log('  - upcharge_percentage fields in materials and finishes');
 
   } catch (error) {
     console.error('❌ Migration failed:', error);
     throw error;
   } finally {
-    client.release();
     await pool.end();
   }
 }
 
-runMigration();
+runMigration()
+  .then(() => process.exit(0))
+  .catch(() => process.exit(1));
