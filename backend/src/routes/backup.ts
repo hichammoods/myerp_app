@@ -9,7 +9,6 @@ import {
   exportDataToCSV,
 } from '../utils/backup';
 import { logger } from '../utils/logger';
-import db from '../database';
 
 const router = express.Router();
 

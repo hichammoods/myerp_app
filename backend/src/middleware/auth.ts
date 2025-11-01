@@ -36,14 +36,14 @@ export const generateTokens = (user: any) => {
       role: user.role,
       name: `${user.first_name} ${user.last_name}`
     },
-    JWT_SECRET,
-    { expiresIn: JWT_EXPIRY }
+    JWT_SECRET as string,
+    { expiresIn: JWT_EXPIRY as string }
   );
 
   const refreshToken = jwt.sign(
     { id: user.id, type: 'refresh' },
-    JWT_SECRET,
-    { expiresIn: REFRESH_TOKEN_EXPIRY }
+    JWT_SECRET as string,
+    { expiresIn: REFRESH_TOKEN_EXPIRY as string }
   );
 
   return { accessToken, refreshToken };
@@ -274,6 +274,6 @@ export const validateSession = async (sessionId: string): Promise<boolean> => {
 export const clearUserSessions = async (userId: string) => {
   const keys = await redisClient.keys(`session:${userId}:*`);
   if (keys.length > 0) {
-    await redisClient.del(...keys);
+    await redisClient.del(keys as any);
   }
 };

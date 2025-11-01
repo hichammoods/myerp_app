@@ -37,7 +37,7 @@ class RedisConnectionManager {
       const config = this.getConfig();
 
       // Main client for general operations
-      this.client = new Redis(config);
+      this.client = new Redis(config as any);
 
       // Set up event handlers but don't let them crash the app
       this.setupEventHandlers(this.client, 'main');
@@ -50,8 +50,8 @@ class RedisConnectionManager {
 
       // Separate clients for pub/sub if needed
       if (process.env.ENABLE_PUBSUB === 'true') {
-        this.subscriber = new Redis(config);
-        this.publisher = new Redis(config);
+        this.subscriber = new Redis(config as any);
+        this.publisher = new Redis(config as any);
       }
 
     } catch (error) {
