@@ -42,6 +42,7 @@ export function ContactForm({ contact, onSave, onClose }: ContactFormProps) {
     address_state: contact?.address_state || '',
     address_zip: contact?.address_zip || '',
     address_country: contact?.address_country || 'France',
+    website: contact?.website || '',
     tax_id: contact?.tax_id || '',
     payment_terms: contact?.payment_terms || 30,
     credit_limit: contact?.credit_limit || 0,

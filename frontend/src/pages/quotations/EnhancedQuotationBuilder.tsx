@@ -572,13 +572,13 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
         product_name: item.product_name,
         product_sku: item.product_sku || '',
         description: item.description || '',
-        quantity: parseFloat(item.quantity) || 0,
-        unit_price: parseFloat(item.unit_price) || 0,
-        discount_percent: parseFloat(item.discount_percent) || 0,
-        discount_amount: parseFloat(item.discount_amount) || 0,
-        tax_rate: parseFloat(item.tax_rate) || 0,
-        tax_amount: parseFloat(item.tax_amount) || 0,
-        line_total: parseFloat(item.line_total) || 0,
+        quantity: parseFloat(item.quantity as any) || 0,
+        unit_price: parseFloat(item.unit_price as any) || 0,
+        discount_percent: parseFloat(item.discount_percent as any) || 0,
+        discount_amount: parseFloat(item.discount_amount as any) || 0,
+        tax_rate: parseFloat(item.tax_rate as any) || 0,
+        tax_amount: parseFloat(item.tax_amount as any) || 0,
+        line_total: parseFloat(item.line_total as any) || 0,
         notes: item.notes || null
       }))
     )
@@ -992,11 +992,11 @@ export function EnhancedQuotationBuilder({ quotation, onSave, onClose }: Quotati
                                       <p className="text-xs text-gray-600 line-clamp-2">{item.description}</p>
                                     )}
                                     {/* Materials inline */}
-                                    {item.is_customizable && item.materials && item.materials.length > 0 && (
+                                    {(item as any).is_customizable && (item as any).materials && (item as any).materials.length > 0 && (
                                       <div className="mt-1">
                                         <span className="text-xs text-gray-500">
-                                          {`${item.materials[0].materialName} - ${item.materials[0].finishName}`}
-                                          {item.materials.length > 1 && ` +${item.materials.length - 1}`}
+                                          {`${(item as any).materials[0].materialName} - ${(item as any).materials[0].finishName}`}
+                                          {(item as any).materials.length > 1 && ` +${(item as any).materials.length - 1}`}
                                         </span>
                                         <Button
                                           type="button"

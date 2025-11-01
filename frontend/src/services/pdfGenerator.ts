@@ -531,7 +531,7 @@ export class PDFGenerator {
     this.drawFooter(quotation)
 
     // Add page numbers
-    const pageCount = this.doc.getNumberOfPages()
+    const pageCount = (this.doc as any).internal.getNumberOfPages()
     this.doc.setFont('helvetica', 'normal')
     this.doc.setFontSize(8)
     this.doc.setTextColor(this.lightGray)
@@ -815,7 +815,7 @@ export class PDFGenerator {
     }
 
     // Add page numbers
-    const pageCount = this.doc.getNumberOfPages()
+    const pageCount = (this.doc as any).internal.getNumberOfPages()
     this.doc.setFont('helvetica', 'normal')
     this.doc.setFontSize(8)
     this.doc.setTextColor(this.lightGray)
@@ -990,7 +990,7 @@ export class PDFGenerator {
     }
 
     // Add page numbers
-    const pageCount = this.doc.getNumberOfPages()
+    const pageCount = (this.doc as any).internal.getNumberOfPages()
     this.doc.setFont('helvetica', 'normal')
     this.doc.setFontSize(8)
     this.doc.setTextColor(this.lightGray)

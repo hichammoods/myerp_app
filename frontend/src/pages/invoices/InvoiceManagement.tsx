@@ -98,7 +98,7 @@ export function InvoiceManagement() {
   }, [statsData])
 
   const updateStatusMutation = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: string }) => invoicesApi.updateStatus(id, status),
+    mutationFn: ({ id, status }: { id: string; status: string }) => invoicesApi.updateStatus(id, status as any),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['invoices'] })
       queryClient.invalidateQueries({ queryKey: ['invoice-stats'] })

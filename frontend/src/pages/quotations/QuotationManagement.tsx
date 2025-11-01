@@ -236,7 +236,7 @@ export function QuotationManagement() {
         down_payment_method: downPaymentMethod || undefined,
         down_payment_date: downPaymentDate || undefined,
         down_payment_notes: downPaymentNotes || undefined,
-      }),
+      } as any),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['quotations'] })
       queryClient.invalidateQueries({ queryKey: ['sales-orders'] })
