@@ -18,8 +18,8 @@ const clearQuotationCache = async () => {
   try {
     const keys = await redisClient.keys('quotations:*');
     const quotationKeys = await redisClient.keys('quotation:*');
-    if (keys.length > 0) await redisClient.del(...keys);
-    if (quotationKeys.length > 0) await redisClient.del(...quotationKeys);
+    if (keys.length > 0) await redisClient.del(keys as any);
+    if (quotationKeys.length > 0) await redisClient.del(quotationKeys as any);
   } catch (error) {
     logger.error('Error clearing quotation cache:', error);
   }

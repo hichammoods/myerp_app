@@ -247,6 +247,7 @@ export const authenticateApiKey = async (
       id: 'api-key-user',
       email: 'api@myerp.com',
       role: 'admin', // Or specific role for API keys
+      name: 'API User',
     };
 
     next();

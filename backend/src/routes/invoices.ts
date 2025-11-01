@@ -18,8 +18,8 @@ const clearInvoiceCache = async () => {
   try {
     const keys = await redisClient.keys('invoices:*');
     const invoiceKeys = await redisClient.keys('invoice:*');
-    if (keys.length > 0) await redisClient.del(...keys);
-    if (invoiceKeys.length > 0) await redisClient.del(...invoiceKeys);
+    if (keys.length > 0) await redisClient.del(keys as any);
+    if (invoiceKeys.length > 0) await redisClient.del(invoiceKeys as any);
   } catch (error) {
     logger.error('Error clearing invoice cache:', error);
   }

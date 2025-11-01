@@ -18,8 +18,8 @@ const clearOrderCache = async () => {
   try {
     const keys = await redisClient.keys('sales_orders:*');
     const orderKeys = await redisClient.keys('sales_order:*');
-    if (keys.length > 0) await redisClient.del(...keys);
-    if (orderKeys.length > 0) await redisClient.del(...orderKeys);
+    if (keys.length > 0) await redisClient.del(keys as any);
+    if (orderKeys.length > 0) await redisClient.del(orderKeys as any);
   } catch (error) {
     logger.error('Error clearing sales order cache:', error);
   }

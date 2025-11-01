@@ -5,24 +5,10 @@ import { db } from '../database/connection';
 import { redisClient } from '../database/redis';
 import { logger } from '../utils/logger';
 
-// Extend Express Request type to include user
-declare global {
-  namespace Express {
-    interface Request {
-      user?: {
-        id: string;
-        email: string;
-        role: string;
-        name: string;
-      };
-    }
-  }
-}
-
 // JWT configuration
-const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
-const JWT_EXPIRY = process.env.JWT_EXPIRY || '365d'; // Token valid for 1 year (only logout will invalidate)
-const REFRESH_TOKEN_EXPIRY = process.env.REFRESH_TOKEN_EXPIRY || '365d';
+const JWT_SECRET: string = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
+const JWT_EXPIRY: string = process.env.JWT_EXPIRY || '365d'; // Token valid for 1 year (only logout will invalidate)
+const REFRESH_TOKEN_EXPIRY: string = process.env.REFRESH_TOKEN_EXPIRY || '365d';
 
 // Token blacklist in Redis
 const BLACKLIST_PREFIX = 'blacklist:token:';
@@ -36,14 +22,14 @@ export const generateTokens = (user: any) => {
       role: user.role,
       name: `${user.first_name} ${user.last_name}`
     },
-    JWT_SECRET as string,
-    { expiresIn: JWT_EXPIRY as string }
+    JWT_SECRET,
+    { expiresIn: JWT_EXPIRY } as any
   );
 
   const refreshToken = jwt.sign(
     { id: user.id, type: 'refresh' },
-    JWT_SECRET as string,
-    { expiresIn: REFRESH_TOKEN_EXPIRY as string }
+    JWT_SECRET,
+    { expiresIn: REFRESH_TOKEN_EXPIRY } as any
   );
 
   return { accessToken, refreshToken };

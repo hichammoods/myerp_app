@@ -76,7 +76,7 @@ router.get('/', authenticateToken, [
 
     if (is_active !== undefined) {
       queryStr += ` AND c.is_active = $${paramIndex}`;
-      params.push(is_active === 'true' || is_active === true);
+      params.push(is_active === 'true');
       paramIndex++;
     }
 
