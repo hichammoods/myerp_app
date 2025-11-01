@@ -47,23 +47,77 @@ if [ $# -eq 0 ]; then
     echo ""
     log_error "No backup folder specified!"
     echo ""
-    echo "Usage: $0 [BACKUP_FOLDER]"
+    echo "Usage: $0 [BACKUP_PATH]"
+    echo "Examples:"
+    echo "  $0 daily/2025-11-01"
+    echo "  $0 weekly/2025-11-03"
+    echo "  $0 monthly/2025-10-31"
     echo ""
     echo "Available backups:"
-    ls -1 "${BACKUP_BASE_DIR}" | grep "^20" || echo "  No backups found"
+    echo ""
+    if [ -d "${BACKUP_BASE_DIR}/daily" ]; then
+        echo "  📅 Daily backups:"
+        ls -1 "${BACKUP_BASE_DIR}/daily" | grep "^20" | sed 's/^/    daily\//' || echo "    None"
+    fi
+    if [ -d "${BACKUP_BASE_DIR}/weekly" ]; then
+        echo "  🗓️  Weekly backups:"
+        ls -1 "${BACKUP_BASE_DIR}/weekly" | grep "^20" | sed 's/^/    weekly\//' || echo "    None"
+    fi
+    if [ -d "${BACKUP_BASE_DIR}/monthly" ]; then
+        echo "  📆 Monthly backups:"
+        ls -1 "${BACKUP_BASE_DIR}/monthly" | grep "^20" | sed 's/^/    monthly\//' || echo "    None"
+    fi
+    # Also check for old-style backups (without tier folders)
+    OLD_BACKUPS=$(ls -1 "${BACKUP_BASE_DIR}" 2>/dev/null | grep "^20" || true)
+    if [ ! -z "$OLD_BACKUPS" ]; then
+        echo "  📂 Legacy backups:"
+        echo "$OLD_BACKUPS" | sed 's/^/    /'
+    fi
     echo ""
     exit 1
 fi
 
-BACKUP_FOLDER=$1
-BACKUP_DIR="${BACKUP_BASE_DIR}/${BACKUP_FOLDER}"
+BACKUP_PATH=$1
+
+# Handle both old format (2025-11-01) and new format (daily/2025-11-01)
+if [[ "$BACKUP_PATH" == *"/"* ]]; then
+    # New tiered format: daily/2025-11-01
+    BACKUP_DIR="${BACKUP_BASE_DIR}/${BACKUP_PATH}"
+else
+    # Old format or just date - try to find it in tier folders
+    BACKUP_DIR=""
+    for tier in daily weekly monthly; do
+        if [ -d "${BACKUP_BASE_DIR}/${tier}/${BACKUP_PATH}" ]; then
+            BACKUP_DIR="${BACKUP_BASE_DIR}/${tier}/${BACKUP_PATH}"
+            log_warning "Found backup in ${tier}/ folder"
+            break
+        fi
+    done
+    # If not found in tiers, try old format (root level)
+    if [ -z "$BACKUP_DIR" ] && [ -d "${BACKUP_BASE_DIR}/${BACKUP_PATH}" ]; then
+        BACKUP_DIR="${BACKUP_BASE_DIR}/${BACKUP_PATH}"
+        log_warning "Using legacy backup format"
+    fi
+fi
 
 # Check if backup exists
-if [ ! -d "${BACKUP_DIR}" ]; then
-    log_error "Backup folder not found: ${BACKUP_DIR}"
+if [ -z "$BACKUP_DIR" ] || [ ! -d "${BACKUP_DIR}" ]; then
+    log_error "Backup not found: ${BACKUP_PATH}"
     echo ""
     echo "Available backups:"
-    ls -1 "${BACKUP_BASE_DIR}" | grep "^20" || echo "  No backups found"
+    echo ""
+    if [ -d "${BACKUP_BASE_DIR}/daily" ]; then
+        echo "  📅 Daily backups:"
+        ls -1 "${BACKUP_BASE_DIR}/daily" | grep "^20" | sed 's/^/    daily\//' || echo "    None"
+    fi
+    if [ -d "${BACKUP_BASE_DIR}/weekly" ]; then
+        echo "  🗓️  Weekly backups:"
+        ls -1 "${BACKUP_BASE_DIR}/weekly" | grep "^20" | sed 's/^/    weekly\//' || echo "    None"
+    fi
+    if [ -d "${BACKUP_BASE_DIR}/monthly" ]; then
+        echo "  📆 Monthly backups:"
+        ls -1 "${BACKUP_BASE_DIR}/monthly" | grep "^20" | sed 's/^/    monthly\//' || echo "    None"
+    fi
     echo ""
     exit 1
 fi
