@@ -121,3 +121,6 @@ coverage/
 
 # dotenv environment variable files
 .env.backup
+PRODUCT_CUSTOMIZATION_PROGRESS.md
+backend/backups/
+test-*.sh
