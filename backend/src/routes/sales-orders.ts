@@ -908,7 +908,8 @@ router.get('/stats/overview', authenticateToken, async (req: Request, res: Respo
         COUNT(CASE WHEN status = 'livre' THEN 1 END) as delivered_count,
         COUNT(CASE WHEN status = 'termine' THEN 1 END) as completed_count,
         COUNT(CASE WHEN status = 'annule' THEN 1 END) as cancelled_count,
-        SUM(CASE WHEN status != 'annule' THEN total_amount ELSE 0 END) as active_revenue,
+        SUM(CASE WHEN status != 'annule' THEN (total_amount - COALESCE(down_payment_amount, 0)) ELSE 0 END) as active_revenue,
+        SUM(CASE WHEN status != 'annule' THEN COALESCE(down_payment_amount, 0) ELSE 0 END) as realized_revenue,
         SUM(CASE WHEN status = 'termine' THEN total_amount ELSE 0 END) as completed_revenue,
         AVG(total_amount) as average_order_value
       FROM sales_orders

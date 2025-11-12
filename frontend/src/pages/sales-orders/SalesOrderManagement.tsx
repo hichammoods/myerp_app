@@ -101,6 +101,7 @@ export function SalesOrderManagement() {
         completedCount: parseInt(statsData.completed_count) || 0,
         cancelledCount: parseInt(statsData.cancelled_count) || 0,
         activeRevenue: parseFloat(statsData.active_revenue) || 0,
+        realizedRevenue: parseFloat(statsData.realized_revenue) || 0,
         completedRevenue: parseFloat(statsData.completed_revenue) || 0,
         averageOrderValue: parseFloat(statsData.average_order_value) || 0
       }
@@ -114,6 +115,7 @@ export function SalesOrderManagement() {
       completedCount: 0,
       cancelledCount: 0,
       activeRevenue: 0,
+      realizedRevenue: 0,
       completedRevenue: 0,
       averageOrderValue: 0
     }
@@ -440,9 +442,9 @@ export function SalesOrderManagement() {
             <Euro className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(stats.completedRevenue)}</div>
+            <div className="text-2xl font-bold">{formatCurrency(stats.realizedRevenue)}</div>
             <p className="text-xs text-muted-foreground mt-1">
-              Commandes terminées
+              Acomptes encaissés
             </p>
           </CardContent>
         </Card>
