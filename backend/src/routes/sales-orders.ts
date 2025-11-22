@@ -57,7 +57,7 @@ router.get('/', authenticateToken, [
         c.first_name || ' ' || c.last_name as contact_name,
         c.company_name,
         c.email as contact_email,
-        c.phone as contact_phone,
+        COALESCE(c.mobile, c.phone) as contact_phone,
         q.quotation_number,
         i.invoice_number,
         COUNT(DISTINCT soi.id) as items_count
@@ -172,7 +172,7 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
         c.first_name || ' ' || c.last_name as contact_name,
         c.company_name,
         c.email as contact_email,
-        c.phone as contact_phone,
+        COALESCE(c.mobile, c.phone) as contact_phone,
         c.address_street as contact_address,
         c.address_city as contact_city,
         c.address_zip as contact_postal_code,
@@ -296,9 +296,10 @@ router.post('/', authenticateToken, [
           );
 
           if (stockResult.rows.length > 0) {
-            const availableStock = stockResult.rows[0].stock_quantity;
-            if (availableStock < line.quantity) {
-              stockWarnings.push(`${line.product_name}: ${availableStock} disponible(s), ${line.quantity} nécessaire(s)`);
+            const availableStock = parseFloat(stockResult.rows[0].stock_quantity) || 0;
+            const requiredQuantity = parseFloat(line.quantity) || 0;
+            if (availableStock < requiredQuantity) {
+              stockWarnings.push(`${line.product_name}: ${availableStock} disponible(s), ${requiredQuantity} nécessaire(s)`);
             }
           }
         }

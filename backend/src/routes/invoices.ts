@@ -57,7 +57,7 @@ router.get('/', authenticateToken, [
         c.first_name || ' ' || c.last_name as contact_name,
         c.company_name,
         c.email as contact_email,
-        c.phone as contact_phone,
+        COALESCE(c.mobile, c.phone) as contact_phone,
         so.order_number,
         q.quotation_number,
         COUNT(DISTINCT ii.id) as items_count
@@ -172,7 +172,7 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
         c.first_name || ' ' || c.last_name as contact_name,
         c.company_name,
         c.email as contact_email,
-        c.phone as contact_phone,
+        COALESCE(c.mobile, c.phone) as contact_phone,
         c.address_street as contact_address,
         c.address_city as contact_city,
         c.address_zip as contact_postal_code,
