@@ -897,9 +897,217 @@ router.delete('/:id', authenticateToken, authorizeRole('admin'), async (req: Req
   }
 });
 
+// ============================================================================
+// PAYMENT MANAGEMENT ENDPOINTS
+// ============================================================================
+
+// ADD payment to sales order
+router.post('/:id/payments', authenticateToken, [
+  body('amount').isNumeric().withMessage('Amount must be a number'),
+  body('amount').custom((value) => value > 0).withMessage('Amount must be positive'),
+  body('method').isIn(['especes', 'carte', 'virement', 'cheque']).withMessage('Invalid payment method'),
+  body('date').isISO8601().withMessage('Invalid date format'),
+  body('notes').optional().isString()
+], async (req: Request, res: Response) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { id } = req.params;
+    const { amount, method, date, notes } = req.body;
+
+    // Check if order exists and is not cancelled
+    const orderCheck = await db.query(
+      'SELECT id, status, total_amount, payments FROM sales_orders WHERE id = $1',
+      [id]
+    );
+
+    if (orderCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Sales order not found' });
+    }
+
+    if (orderCheck.rows[0].status === 'annule') {
+      return res.status(400).json({ error: 'Cannot add payment to cancelled order' });
+    }
+
+    // Create new payment object
+    const newPayment = {
+      id: require('crypto').randomUUID(),
+      amount: parseFloat(amount),
+      method,
+      date,
+      notes: notes || ''
+    };
+
+    // Add payment to array
+    const currentPayments = orderCheck.rows[0].payments || [];
+    const updatedPayments = [...currentPayments, newPayment];
+
+    // Calculate total paid for backward compatibility
+    const totalPaid = updatedPayments.reduce((sum: number, p: any) => sum + parseFloat(p.amount), 0);
+
+    // Update order
+    await db.query(
+      `UPDATE sales_orders
+       SET payments = $1::jsonb,
+           down_payment_amount = $2,
+           down_payment_method = $3,
+           down_payment_date = $4,
+           down_payment_notes = $5,
+           updated_at = NOW()
+       WHERE id = $6`,
+      [
+        JSON.stringify(updatedPayments),
+        totalPaid,
+        updatedPayments[0]?.method || null,
+        updatedPayments[0]?.date || null,
+        updatedPayments[0]?.notes || null,
+        id
+      ]
+    );
+
+    // Clear cache
+    await clearOrderCache();
+
+    // Return updated order
+    const updatedOrder = await db.query('SELECT * FROM sales_orders WHERE id = $1', [id]);
+    res.status(201).json(updatedOrder.rows[0]);
+  } catch (error) {
+    logger.error('Error adding payment:', error);
+    res.status(500).json({ error: 'Failed to add payment' });
+  }
+});
+
+// UPDATE payment in sales order
+router.put('/:id/payments/:paymentId', authenticateToken, [
+  body('amount').optional().isNumeric().withMessage('Amount must be a number'),
+  body('method').optional().isIn(['especes', 'carte', 'virement', 'cheque']).withMessage('Invalid payment method'),
+  body('date').optional().isISO8601().withMessage('Invalid date format'),
+  body('notes').optional().isString()
+], async (req: Request, res: Response) => {
+  try {
+    const { id, paymentId } = req.params;
+    const { amount, method, date, notes } = req.body;
+
+    // Get current order
+    const orderCheck = await db.query(
+      'SELECT id, status, payments FROM sales_orders WHERE id = $1',
+      [id]
+    );
+
+    if (orderCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Sales order not found' });
+    }
+
+    if (orderCheck.rows[0].status === 'annule') {
+      return res.status(400).json({ error: 'Cannot modify payment on cancelled order' });
+    }
+
+    const currentPayments = orderCheck.rows[0].payments || [];
+    const paymentIndex = currentPayments.findIndex((p: any) => p.id === paymentId);
+
+    if (paymentIndex === -1) {
+      return res.status(404).json({ error: 'Payment not found' });
+    }
+
+    // Update payment
+    if (amount !== undefined) currentPayments[paymentIndex].amount = parseFloat(amount);
+    if (method !== undefined) currentPayments[paymentIndex].method = method;
+    if (date !== undefined) currentPayments[paymentIndex].date = date;
+    if (notes !== undefined) currentPayments[paymentIndex].notes = notes;
+
+    // Calculate total paid for backward compatibility
+    const totalPaid = currentPayments.reduce((sum: number, p: any) => sum + parseFloat(p.amount), 0);
+
+    // Update order
+    await db.query(
+      `UPDATE sales_orders
+       SET payments = $1::jsonb,
+           down_payment_amount = $2,
+           updated_at = NOW()
+       WHERE id = $3`,
+      [JSON.stringify(currentPayments), totalPaid, id]
+    );
+
+    // Clear cache
+    await clearOrderCache();
+
+    // Return updated order
+    const updatedOrder = await db.query('SELECT * FROM sales_orders WHERE id = $1', [id]);
+    res.json(updatedOrder.rows[0]);
+  } catch (error) {
+    logger.error('Error updating payment:', error);
+    res.status(500).json({ error: 'Failed to update payment' });
+  }
+});
+
+// DELETE payment from sales order
+router.delete('/:id/payments/:paymentId', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { id, paymentId } = req.params;
+
+    // Get current order
+    const orderCheck = await db.query(
+      'SELECT id, status, payments FROM sales_orders WHERE id = $1',
+      [id]
+    );
+
+    if (orderCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Sales order not found' });
+    }
+
+    if (orderCheck.rows[0].status === 'annule') {
+      return res.status(400).json({ error: 'Cannot delete payment from cancelled order' });
+    }
+
+    const currentPayments = orderCheck.rows[0].payments || [];
+    const paymentIndex = currentPayments.findIndex((p: any) => p.id === paymentId);
+
+    if (paymentIndex === -1) {
+      return res.status(404).json({ error: 'Payment not found' });
+    }
+
+    // Remove payment
+    currentPayments.splice(paymentIndex, 1);
+
+    // Calculate total paid for backward compatibility
+    const totalPaid = currentPayments.reduce((sum: number, p: any) => sum + parseFloat(p.amount), 0);
+
+    // Update order
+    await db.query(
+      `UPDATE sales_orders
+       SET payments = $1::jsonb,
+           down_payment_amount = $2,
+           down_payment_method = CASE WHEN $3 = 0 THEN NULL ELSE down_payment_method END,
+           down_payment_date = CASE WHEN $3 = 0 THEN NULL ELSE down_payment_date END,
+           down_payment_notes = CASE WHEN $3 = 0 THEN NULL ELSE down_payment_notes END,
+           updated_at = NOW()
+       WHERE id = $4`,
+      [JSON.stringify(currentPayments), totalPaid, currentPayments.length, id]
+    );
+
+    // Clear cache
+    await clearOrderCache();
+
+    // Return updated order
+    const updatedOrder = await db.query('SELECT * FROM sales_orders WHERE id = $1', [id]);
+    res.json(updatedOrder.rows[0]);
+  } catch (error) {
+    logger.error('Error deleting payment:', error);
+    res.status(500).json({ error: 'Failed to delete payment' });
+  }
+});
+
+// ============================================================================
+// STATISTICS
+// ============================================================================
+
 // GET sales order statistics
 router.get('/stats/overview', authenticateToken, async (req: Request, res: Response) => {
   try {
+    // Calculate total payments from JSONB array
     const stats = await db.query(`
       SELECT
         COUNT(*) as total_orders,
@@ -909,8 +1117,16 @@ router.get('/stats/overview', authenticateToken, async (req: Request, res: Respo
         COUNT(CASE WHEN status = 'livre' THEN 1 END) as delivered_count,
         COUNT(CASE WHEN status = 'termine' THEN 1 END) as completed_count,
         COUNT(CASE WHEN status = 'annule' THEN 1 END) as cancelled_count,
-        SUM(CASE WHEN status != 'annule' THEN (total_amount - COALESCE(down_payment_amount, 0)) ELSE 0 END) as active_revenue,
-        SUM(CASE WHEN status != 'annule' THEN COALESCE(down_payment_amount, 0) ELSE 0 END) as realized_revenue,
+        SUM(CASE
+          WHEN status NOT IN ('termine', 'annule') THEN
+            total_amount - COALESCE((SELECT SUM((p->>'amount')::numeric) FROM jsonb_array_elements(payments) p), 0)
+          ELSE 0
+        END) as active_revenue,
+        SUM(CASE
+          WHEN status = 'termine' THEN total_amount
+          WHEN status != 'annule' THEN COALESCE((SELECT SUM((p->>'amount')::numeric) FROM jsonb_array_elements(payments) p), 0)
+          ELSE 0
+        END) as realized_revenue,
         SUM(CASE WHEN status = 'termine' THEN total_amount ELSE 0 END) as completed_revenue,
         AVG(total_amount) as average_order_value
       FROM sales_orders

@@ -240,6 +240,8 @@ export function InvoiceManagement() {
         downPaymentNotes: fullInvoice.down_payment_notes || undefined,
         amountPaid: fullInvoice.amount_paid ? parseFloat(fullInvoice.amount_paid) : undefined,
         amountDue: fullInvoice.amount_due ? parseFloat(fullInvoice.amount_due) : undefined,
+        // Multiple payments support (from linked sales order)
+        payments: fullInvoice.payments || [],
         notes: fullInvoice.notes || undefined,
         termsAndConditions: fullInvoice.terms_conditions || undefined,
         paymentTerms: fullInvoice.payment_terms || undefined,
@@ -623,13 +625,26 @@ export function InvoiceManagement() {
                           <td colSpan={4} className="text-right p-2">Total TTC:</td>
                           <td className="text-right p-2">{formatCurrency(parseFloat(selectedInvoice.total_amount || 0))}</td>
                         </tr>
-                        {/* Show down payment if exists */}
-                        {parseFloat(selectedInvoice.down_payment_amount || 0) > 0 && (
-                          <tr className="text-green-600">
-                            <td colSpan={4} className="text-right p-2">Acompte versé:</td>
-                            <td className="text-right p-2">-{formatCurrency(parseFloat(selectedInvoice.down_payment_amount))}</td>
-                          </tr>
-                        )}
+                        {/* Show payments if exists */}
+                        {(() => {
+                          const hasPayments = selectedInvoice.payments && selectedInvoice.payments.length > 0
+                          const hasLegacyDownPayment = parseFloat(selectedInvoice.down_payment_amount || 0) > 0
+                          const totalPayments = hasPayments
+                            ? selectedInvoice.payments.reduce((sum: number, p: any) => sum + parseFloat(String(p.amount)), 0)
+                            : (hasLegacyDownPayment ? parseFloat(selectedInvoice.down_payment_amount) : 0)
+
+                          if (totalPayments > 0) {
+                            return (
+                              <tr className="text-green-600">
+                                <td colSpan={4} className="text-right p-2">
+                                  {hasPayments && selectedInvoice.payments.length > 1 ? 'Acomptes versés:' : 'Acompte versé:'}
+                                </td>
+                                <td className="text-right p-2">-{formatCurrency(totalPayments)}</td>
+                              </tr>
+                            )
+                          }
+                          return null
+                        })()}
                         {/* Show final payment if exists */}
                         {selectedInvoice.amount_paid && parseFloat(selectedInvoice.amount_paid) > 0 && (
                           <tr className="text-green-600">
@@ -657,72 +672,118 @@ export function InvoiceManagement() {
                 </div>
               )}
 
-              {/* Payment History */}
-              {(parseFloat(selectedInvoice.down_payment_amount || 0) > 0 || (selectedInvoice.amount_paid && parseFloat(selectedInvoice.amount_paid) > 0)) && (
-                <div>
-                  <h4 className="font-semibold mb-2">Historique des paiements</h4>
-                  <div className="space-y-3">
-                    {/* Down payment */}
-                    {parseFloat(selectedInvoice.down_payment_amount || 0) > 0 && (
-                      <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <p className="font-medium text-green-900">💰 Acompte versé</p>
-                            <div className="text-sm text-gray-600 mt-1 space-y-0.5">
-                              {selectedInvoice.down_payment_method && (
-                                <p><strong>Mode:</strong> {
-                                  selectedInvoice.down_payment_method === 'especes' ? 'Espèces' :
-                                  selectedInvoice.down_payment_method === 'carte' ? 'Carte bancaire' :
-                                  selectedInvoice.down_payment_method === 'virement' ? 'Virement' :
-                                  selectedInvoice.down_payment_method === 'cheque' ? 'Chèque' :
-                                  selectedInvoice.down_payment_method
-                                }</p>
-                              )}
-                              {selectedInvoice.down_payment_date && (
-                                <p><strong>Date:</strong> {formatDate(selectedInvoice.down_payment_date)}</p>
-                              )}
-                            </div>
-                          </div>
-                          <div className="text-lg font-bold text-green-700">
-                            {formatCurrency(parseFloat(selectedInvoice.down_payment_amount))}
-                          </div>
-                        </div>
-                      </div>
-                    )}
+              {/* Payment History - Multiple payments from sales order */}
+              {(() => {
+                const hasPayments = selectedInvoice.payments && selectedInvoice.payments.length > 0
+                const hasLegacyDownPayment = parseFloat(selectedInvoice.down_payment_amount || 0) > 0
+                const hasFinalPayment = selectedInvoice.amount_paid && parseFloat(selectedInvoice.amount_paid) > 0
 
-                    {/* Final payment */}
-                    {selectedInvoice.amount_paid && parseFloat(selectedInvoice.amount_paid) > 0 && (
-                      <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <p className="font-medium text-green-900">✓ Solde payé</p>
-                            <div className="text-sm text-gray-600 mt-1 space-y-0.5">
-                              {selectedInvoice.payment_method && (
-                                <p><strong>Mode:</strong> {
-                                  selectedInvoice.payment_method === 'virement' ? 'Virement' :
-                                  selectedInvoice.payment_method === 'cheque' ? 'Chèque' :
-                                  selectedInvoice.payment_method === 'carte' ? 'Carte bancaire' :
-                                  selectedInvoice.payment_method === 'especes' ? 'Espèces' :
-                                  selectedInvoice.payment_method
-                                }</p>
-                              )}
-                              {selectedInvoice.payment_date && (
-                                <p><strong>Date:</strong> {formatDate(selectedInvoice.payment_date)}</p>
-                              )}
-                              {selectedInvoice.payment_reference && (
-                                <p><strong>Référence:</strong> {selectedInvoice.payment_reference}</p>
-                              )}
+                if (!hasPayments && !hasLegacyDownPayment && !hasFinalPayment) return null
+
+                const getMethodLabel = (method: string) => {
+                  return method === 'especes' ? 'Espèces' :
+                         method === 'carte' ? 'Carte bancaire' :
+                         method === 'virement' ? 'Virement' :
+                         method === 'cheque' ? 'Chèque' : method
+                }
+
+                // Calculate total from payments array
+                const totalFromPayments = hasPayments
+                  ? selectedInvoice.payments.reduce((sum: number, p: any) => sum + parseFloat(String(p.amount)), 0)
+                  : (hasLegacyDownPayment ? parseFloat(selectedInvoice.down_payment_amount) : 0)
+
+                return (
+                  <div>
+                    <h4 className="font-semibold mb-2 flex items-center gap-2">
+                      <CreditCard className="h-5 w-5" />
+                      Historique des paiements / Acomptes
+                    </h4>
+                    <div className="space-y-3">
+                      {/* Multiple payments from sales order */}
+                      {hasPayments ? (
+                        selectedInvoice.payments.map((payment: any, idx: number) => (
+                          <div key={payment.id || idx} className="bg-green-50 border border-green-200 rounded-lg p-3">
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <p className="font-medium text-green-900">
+                                  {idx === 0 ? '💰 Acompte' : `💰 Paiement ${idx + 1}`}
+                                </p>
+                                <div className="text-sm text-gray-600 mt-1 space-y-0.5">
+                                  <p><strong>Mode:</strong> {getMethodLabel(payment.method)}</p>
+                                  {payment.date && (
+                                    <p><strong>Date:</strong> {formatDate(payment.date)}</p>
+                                  )}
+                                  {payment.notes && (
+                                    <p><strong>Notes:</strong> {payment.notes}</p>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="text-lg font-bold text-green-700">
+                                {formatCurrency(parseFloat(String(payment.amount)))}
+                              </div>
                             </div>
                           </div>
-                          <div className="text-lg font-bold text-green-700">
-                            {formatCurrency(parseFloat(selectedInvoice.amount_paid))}
+                        ))
+                      ) : hasLegacyDownPayment && (
+                        /* Legacy single down payment */
+                        <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <p className="font-medium text-green-900">💰 Acompte versé</p>
+                              <div className="text-sm text-gray-600 mt-1 space-y-0.5">
+                                {selectedInvoice.down_payment_method && (
+                                  <p><strong>Mode:</strong> {getMethodLabel(selectedInvoice.down_payment_method)}</p>
+                                )}
+                                {selectedInvoice.down_payment_date && (
+                                  <p><strong>Date:</strong> {formatDate(selectedInvoice.down_payment_date)}</p>
+                                )}
+                              </div>
+                            </div>
+                            <div className="text-lg font-bold text-green-700">
+                              {formatCurrency(parseFloat(selectedInvoice.down_payment_amount))}
+                            </div>
                           </div>
                         </div>
+                      )}
+
+                      {/* Final payment recorded on invoice */}
+                      {hasFinalPayment && (
+                        <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <p className="font-medium text-green-900">✓ Solde payé</p>
+                              <div className="text-sm text-gray-600 mt-1 space-y-0.5">
+                                {selectedInvoice.payment_method && (
+                                  <p><strong>Mode:</strong> {getMethodLabel(selectedInvoice.payment_method)}</p>
+                                )}
+                                {selectedInvoice.payment_date && (
+                                  <p><strong>Date:</strong> {formatDate(selectedInvoice.payment_date)}</p>
+                                )}
+                                {selectedInvoice.payment_reference && (
+                                  <p><strong>Référence:</strong> {selectedInvoice.payment_reference}</p>
+                                )}
+                              </div>
+                            </div>
+                            <div className="text-lg font-bold text-green-700">
+                              {formatCurrency(parseFloat(selectedInvoice.amount_paid))}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Summary */}
+                      <div className="bg-gray-50 border rounded-lg p-3 mt-2">
+                        <div className="flex justify-between text-sm font-medium">
+                          <span>Total des paiements:</span>
+                          <span className="text-green-700">
+                            {formatCurrency(totalFromPayments + (hasFinalPayment ? parseFloat(selectedInvoice.amount_paid) : 0))}
+                          </span>
+                        </div>
                       </div>
-                    )}
+                    </div>
                   </div>
-                </div>
-              )}
+                )
+              })()}
 
               {selectedInvoice.notes && (
                 <div>

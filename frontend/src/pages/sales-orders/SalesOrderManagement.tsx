@@ -26,7 +26,11 @@ import {
   MoreHorizontal,
   PackageCheck,
   Ban,
-  Download
+  Download,
+  Plus,
+  Pencil,
+  Trash2,
+  CreditCard
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -51,6 +55,16 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+
+// Payment type definition
+interface Payment {
+  id: string;
+  amount: number;
+  method: 'especes' | 'carte' | 'virement' | 'cheque';
+  date: string;
+  notes?: string;
+}
 
 export function SalesOrderManagement() {
   const queryClient = useQueryClient()
@@ -64,6 +78,20 @@ export function SalesOrderManagement() {
     orderId: string | null
     newStatus: string | null
   }>({ open: false, orderId: null, newStatus: null })
+
+  // Payment dialog state
+  const [paymentDialog, setPaymentDialog] = useState<{
+    open: boolean;
+    mode: 'add' | 'edit';
+    orderId: string | null;
+    payment: Payment | null;
+  }>({ open: false, mode: 'add', orderId: null, payment: null })
+  const [paymentForm, setPaymentForm] = useState({
+    amount: '',
+    method: 'especes' as 'especes' | 'carte' | 'virement' | 'cheque',
+    date: new Date().toISOString().split('T')[0],
+    notes: ''
+  })
 
   // Debounce search input
   useEffect(() => {
@@ -182,6 +210,63 @@ export function SalesOrderManagement() {
     }
   })
 
+  // Payment mutations
+  const addPaymentMutation = useMutation({
+    mutationFn: ({ orderId, data }: { orderId: string; data: any }) =>
+      salesOrdersApi.addPayment(orderId, data),
+    onSuccess: async (response) => {
+      queryClient.invalidateQueries({ queryKey: ['sales-orders'] })
+      queryClient.invalidateQueries({ queryKey: ['sales-order-stats'] })
+      toast.success('Paiement ajouté avec succès')
+      setPaymentDialog({ open: false, mode: 'add', orderId: null, payment: null })
+      // Refresh selected order
+      if (selectedOrder) {
+        const updated = await salesOrdersApi.getById(selectedOrder.id)
+        setSelectedOrder(updated)
+      }
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.error || 'Erreur lors de l\'ajout du paiement')
+    }
+  })
+
+  const updatePaymentMutation = useMutation({
+    mutationFn: ({ orderId, paymentId, data }: { orderId: string; paymentId: string; data: any }) =>
+      salesOrdersApi.updatePayment(orderId, paymentId, data),
+    onSuccess: async () => {
+      queryClient.invalidateQueries({ queryKey: ['sales-orders'] })
+      queryClient.invalidateQueries({ queryKey: ['sales-order-stats'] })
+      toast.success('Paiement mis à jour')
+      setPaymentDialog({ open: false, mode: 'add', orderId: null, payment: null })
+      // Refresh selected order
+      if (selectedOrder) {
+        const updated = await salesOrdersApi.getById(selectedOrder.id)
+        setSelectedOrder(updated)
+      }
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.error || 'Erreur lors de la mise à jour du paiement')
+    }
+  })
+
+  const deletePaymentMutation = useMutation({
+    mutationFn: ({ orderId, paymentId }: { orderId: string; paymentId: string }) =>
+      salesOrdersApi.deletePayment(orderId, paymentId),
+    onSuccess: async () => {
+      queryClient.invalidateQueries({ queryKey: ['sales-orders'] })
+      queryClient.invalidateQueries({ queryKey: ['sales-order-stats'] })
+      toast.success('Paiement supprimé')
+      // Refresh selected order
+      if (selectedOrder) {
+        const updated = await salesOrdersApi.getById(selectedOrder.id)
+        setSelectedOrder(updated)
+      }
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.error || 'Erreur lors de la suppression du paiement')
+    }
+  })
+
   const handleViewDetails = async (order: any) => {
     try {
       const fullOrder = await salesOrdersApi.getById(order.id)
@@ -226,6 +311,73 @@ export function SalesOrderManagement() {
     if (confirm(`Créer une facture pour la commande ${order.order_number} ?`)) {
       createInvoiceMutation.mutate(order.id)
     }
+  }
+
+  // Payment handlers
+  const openAddPaymentDialog = (orderId: string) => {
+    setPaymentForm({
+      amount: '',
+      method: 'especes',
+      date: new Date().toISOString().split('T')[0],
+      notes: ''
+    })
+    setPaymentDialog({ open: true, mode: 'add', orderId, payment: null })
+  }
+
+  const openEditPaymentDialog = (orderId: string, payment: Payment) => {
+    setPaymentForm({
+      amount: String(payment.amount),
+      method: payment.method,
+      date: payment.date?.split('T')[0] || new Date().toISOString().split('T')[0],
+      notes: payment.notes || ''
+    })
+    setPaymentDialog({ open: true, mode: 'edit', orderId, payment })
+  }
+
+  const handlePaymentSubmit = () => {
+    if (!paymentDialog.orderId || !paymentForm.amount) {
+      toast.error('Veuillez remplir tous les champs obligatoires')
+      return
+    }
+
+    const data = {
+      amount: parseFloat(paymentForm.amount),
+      method: paymentForm.method,
+      date: paymentForm.date,
+      notes: paymentForm.notes || undefined
+    }
+
+    if (paymentDialog.mode === 'add') {
+      addPaymentMutation.mutate({ orderId: paymentDialog.orderId, data })
+    } else if (paymentDialog.payment) {
+      updatePaymentMutation.mutate({
+        orderId: paymentDialog.orderId,
+        paymentId: paymentDialog.payment.id,
+        data
+      })
+    }
+  }
+
+  const handleDeletePayment = (orderId: string, paymentId: string) => {
+    if (confirm('Êtes-vous sûr de vouloir supprimer ce paiement ?')) {
+      deletePaymentMutation.mutate({ orderId, paymentId })
+    }
+  }
+
+  const getPaymentMethodLabel = (method: string) => {
+    switch (method) {
+      case 'especes': return 'Espèces'
+      case 'carte': return 'Carte bancaire'
+      case 'virement': return 'Virement'
+      case 'cheque': return 'Chèque'
+      default: return method
+    }
+  }
+
+  // Calculate total payments for an order
+  const calculateTotalPayments = (payments: Payment[] | undefined): number => {
+    if (!payments || !Array.isArray(payments)) return 0
+    return payments.reduce((sum, p) => sum + parseFloat(String(p.amount)), 0)
   }
 
   const handleDownloadPDF = async (order: any) => {
@@ -303,6 +455,9 @@ export function SalesOrderManagement() {
         installationCost: parseFloat(fullOrder.installation_cost) || 0,
         totalTax: parseFloat(fullOrder.tax_amount) || 0,
         total: parseFloat(fullOrder.total_amount),
+        // Multiple payments support
+        payments: fullOrder.payments || [],
+        // Legacy single payment fields (for backwards compatibility)
         downPaymentAmount: fullOrder.down_payment_amount ? parseFloat(fullOrder.down_payment_amount) : undefined,
         downPaymentMethod: fullOrder.down_payment_method || undefined,
         downPaymentDate: fullOrder.down_payment_date ? new Date(fullOrder.down_payment_date) : undefined,
@@ -740,15 +895,15 @@ export function SalesOrderManagement() {
                           <td colSpan={3} className="text-right p-2">Total TTC:</td>
                           <td className="text-right p-2">{formatCurrency(parseFloat(selectedOrder.total_amount))}</td>
                         </tr>
-                        {parseFloat(selectedOrder.down_payment_amount || 0) > 0 && (
+                        {calculateTotalPayments(selectedOrder.payments) > 0 && (
                           <>
                             <tr className="bg-green-50">
-                              <td colSpan={3} className="text-right p-2 text-green-700">Acompte versé:</td>
-                              <td className="text-right p-2 text-green-700">-{formatCurrency(parseFloat(selectedOrder.down_payment_amount))}</td>
+                              <td colSpan={3} className="text-right p-2 text-green-700">Paiements reçus:</td>
+                              <td className="text-right p-2 text-green-700">-{formatCurrency(calculateTotalPayments(selectedOrder.payments))}</td>
                             </tr>
                             <tr className="font-bold bg-gray-100">
                               <td colSpan={3} className="text-right p-2">Solde restant:</td>
-                              <td className="text-right p-2">{formatCurrency(parseFloat(selectedOrder.total_amount) - parseFloat(selectedOrder.down_payment_amount))}</td>
+                              <td className="text-right p-2">{formatCurrency(parseFloat(selectedOrder.total_amount) - calculateTotalPayments(selectedOrder.payments))}</td>
                             </tr>
                           </>
                         )}
@@ -758,30 +913,90 @@ export function SalesOrderManagement() {
                 </div>
               )}
 
-              {parseFloat(selectedOrder.down_payment_amount || 0) > 0 && (
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                  <h4 className="font-semibold mb-2 text-green-900">💰 Acompte versé</h4>
-                  <div className="text-sm space-y-1">
-                    <p><strong>Montant:</strong> {formatCurrency(parseFloat(selectedOrder.down_payment_amount))}</p>
-                    {selectedOrder.down_payment_method && (
-                      <p><strong>Mode de paiement:</strong> {
-                        selectedOrder.down_payment_method === 'especes' ? 'Espèces' :
-                        selectedOrder.down_payment_method === 'carte' ? 'Carte bancaire' :
-                        selectedOrder.down_payment_method === 'virement' ? 'Virement' :
-                        selectedOrder.down_payment_method === 'cheque' ? 'Chèque' :
-                        selectedOrder.down_payment_method
-                      }</p>
-                    )}
-                    {selectedOrder.down_payment_date && (
-                      <p><strong>Date:</strong> {formatDate(selectedOrder.down_payment_date)}</p>
-                    )}
-                    {selectedOrder.down_payment_notes && (
-                      <p><strong>Notes:</strong> {selectedOrder.down_payment_notes}</p>
-                    )}
-                    <p className="mt-2 text-green-800"><strong>Solde à payer:</strong> {formatCurrency(parseFloat(selectedOrder.total_amount) - parseFloat(selectedOrder.down_payment_amount))}</p>
-                  </div>
+              {/* Payments Section */}
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <div className="flex justify-between items-center mb-3">
+                  <h4 className="font-semibold text-green-900 flex items-center gap-2">
+                    <CreditCard className="h-5 w-5" />
+                    Paiements / Acomptes
+                  </h4>
+                  {selectedOrder.status !== 'annule' && selectedOrder.status !== 'termine' && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => openAddPaymentDialog(selectedOrder.id)}
+                      className="text-green-700 border-green-300 hover:bg-green-100"
+                    >
+                      <Plus className="h-4 w-4 mr-1" />
+                      Ajouter
+                    </Button>
+                  )}
                 </div>
-              )}
+
+                {selectedOrder.payments && selectedOrder.payments.length > 0 ? (
+                  <div className="space-y-2">
+                    {selectedOrder.payments.map((payment: Payment, idx: number) => (
+                      <div key={payment.id || idx} className="flex justify-between items-center bg-white rounded-lg p-3 border border-green-200">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-green-800">
+                              {formatCurrency(parseFloat(String(payment.amount)))}
+                            </span>
+                            <Badge variant="outline" className="text-xs">
+                              {getPaymentMethodLabel(payment.method)}
+                            </Badge>
+                          </div>
+                          <div className="text-xs text-gray-500 mt-1">
+                            {payment.date && formatDate(payment.date)}
+                            {payment.notes && ` - ${payment.notes}`}
+                          </div>
+                        </div>
+                        {selectedOrder.status !== 'annule' && selectedOrder.status !== 'termine' && (
+                          <div className="flex gap-1">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => openEditPaymentDialog(selectedOrder.id, payment)}
+                              className="h-8 w-8 p-0"
+                            >
+                              <Pencil className="h-4 w-4 text-blue-600" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleDeletePayment(selectedOrder.id, payment.id)}
+                              className="h-8 w-8 p-0"
+                            >
+                              <Trash2 className="h-4 w-4 text-red-600" />
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+
+                    {/* Total payments summary */}
+                    <div className="mt-3 pt-3 border-t border-green-200">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-green-800 font-medium">Total payé:</span>
+                        <span className="font-bold text-green-900">
+                          {formatCurrency(calculateTotalPayments(selectedOrder.payments))}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm mt-1">
+                        <span className="text-green-800 font-medium">Solde restant:</span>
+                        <span className="font-bold text-green-900">
+                          {formatCurrency(parseFloat(selectedOrder.total_amount) - calculateTotalPayments(selectedOrder.payments))}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-4 text-gray-500">
+                    <p>Aucun paiement enregistré</p>
+                    <p className="text-sm mt-1">Solde total: {formatCurrency(parseFloat(selectedOrder.total_amount))}</p>
+                  </div>
+                )}
+              </div>
 
               {selectedOrder.notes && (
                 <div>
@@ -791,6 +1006,97 @@ export function SalesOrderManagement() {
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Payment Dialog */}
+      <Dialog
+        open={paymentDialog.open}
+        onOpenChange={(open) => !open && setPaymentDialog({ open: false, mode: 'add', orderId: null, payment: null })}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {paymentDialog.mode === 'add' ? 'Ajouter un paiement' : 'Modifier le paiement'}
+            </DialogTitle>
+            <DialogDescription>
+              {paymentDialog.mode === 'add'
+                ? 'Enregistrez un nouveau paiement ou acompte pour cette commande.'
+                : 'Modifiez les détails du paiement.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="payment-amount">Montant *</Label>
+              <div className="relative">
+                <Euro className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  id="payment-amount"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="0.00"
+                  value={paymentForm.amount}
+                  onChange={(e) => setPaymentForm(prev => ({ ...prev, amount: e.target.value }))}
+                  className="pl-10"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="payment-method">Mode de paiement *</Label>
+              <Select
+                value={paymentForm.method}
+                onValueChange={(value: any) => setPaymentForm(prev => ({ ...prev, method: value }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Sélectionner" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="especes">Espèces</SelectItem>
+                  <SelectItem value="carte">Carte bancaire</SelectItem>
+                  <SelectItem value="virement">Virement</SelectItem>
+                  <SelectItem value="cheque">Chèque</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="payment-date">Date du paiement</Label>
+              <Input
+                id="payment-date"
+                type="date"
+                value={paymentForm.date}
+                onChange={(e) => setPaymentForm(prev => ({ ...prev, date: e.target.value }))}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="payment-notes">Notes (optionnel)</Label>
+              <Input
+                id="payment-notes"
+                placeholder="Référence, commentaire..."
+                value={paymentForm.notes}
+                onChange={(e) => setPaymentForm(prev => ({ ...prev, notes: e.target.value }))}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setPaymentDialog({ open: false, mode: 'add', orderId: null, payment: null })}
+            >
+              Annuler
+            </Button>
+            <Button
+              onClick={handlePaymentSubmit}
+              disabled={addPaymentMutation.isPending || updatePaymentMutation.isPending}
+            >
+              {addPaymentMutation.isPending || updatePaymentMutation.isPending ? 'Enregistrement...' : 'Enregistrer'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

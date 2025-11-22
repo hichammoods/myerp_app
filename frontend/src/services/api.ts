@@ -468,6 +468,32 @@ export const salesOrdersApi = {
     const response = await api.get('/sales-orders/stats/overview');
     return response.data;
   },
+
+  // Payment management
+  addPayment: async (orderId: string, data: {
+    amount: number;
+    method: 'especes' | 'carte' | 'virement' | 'cheque';
+    date?: string;
+    notes?: string;
+  }) => {
+    const response = await api.post(`/sales-orders/${orderId}/payments`, data);
+    return response.data;
+  },
+
+  updatePayment: async (orderId: string, paymentId: string, data: {
+    amount?: number;
+    method?: 'especes' | 'carte' | 'virement' | 'cheque';
+    date?: string;
+    notes?: string;
+  }) => {
+    const response = await api.put(`/sales-orders/${orderId}/payments/${paymentId}`, data);
+    return response.data;
+  },
+
+  deletePayment: async (orderId: string, paymentId: string) => {
+    const response = await api.delete(`/sales-orders/${orderId}/payments/${paymentId}`);
+    return response.data;
+  },
 };
 
 // Invoices API

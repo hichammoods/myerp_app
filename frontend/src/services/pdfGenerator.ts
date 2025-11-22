@@ -55,6 +55,14 @@ interface Quotation {
   status: 'draft' | 'sent' | 'accepted' | 'rejected' | 'expired'
 }
 
+interface Payment {
+  id: string
+  amount: number
+  method: 'especes' | 'carte' | 'virement' | 'cheque'
+  date?: string
+  notes?: string
+}
+
 interface SalesOrder {
   id: string
   orderNumber: string
@@ -69,6 +77,9 @@ interface SalesOrder {
   installationCost?: number
   totalTax: number
   total: number
+  // Multiple payments support
+  payments?: Payment[]
+  // Legacy single payment fields (for backwards compatibility)
   downPaymentAmount?: number
   downPaymentMethod?: string
   downPaymentDate?: Date
@@ -94,6 +105,9 @@ interface Invoice {
   installationCost?: number
   totalTax: number
   total: number
+  // Multiple payments support (from linked sales order)
+  payments?: Payment[]
+  // Legacy single payment fields (for backwards compatibility)
   downPaymentAmount?: number
   downPaymentMethod?: string
   downPaymentDate?: Date
@@ -730,48 +744,96 @@ export class PDFGenerator {
     this.drawItemsTable(salesOrder.items)
     this.drawTotals(quotationFormat)
 
-    // Down payment section for sales order
-    if (salesOrder.downPaymentAmount && salesOrder.downPaymentAmount > 0) {
+    // Payments section for sales order (supports multiple payments)
+    const hasPayments = salesOrder.payments && salesOrder.payments.length > 0
+    const hasLegacyDownPayment = salesOrder.downPaymentAmount && salesOrder.downPaymentAmount > 0
+
+    if (hasPayments || hasLegacyDownPayment) {
       this.currentY += 8
       const totalsX = this.pageWidth - this.margin - 60
       const labelX = totalsX - 35
+
+      // Helper function to get payment method label
+      const getMethodLabel = (method: string) => {
+        return method === 'especes' ? 'Espèces' :
+               method === 'carte' ? 'Carte bancaire' :
+               method === 'virement' ? 'Virement' :
+               method === 'cheque' ? 'Chèque' : method
+      }
+
+      // Calculate total payments
+      let totalPayments = 0
+      if (hasPayments) {
+        totalPayments = salesOrder.payments!.reduce((sum, p) => sum + parseFloat(String(p.amount)), 0)
+      } else if (hasLegacyDownPayment) {
+        totalPayments = salesOrder.downPaymentAmount!
+      }
 
       this.doc.setFont('helvetica', 'bold')
       this.doc.setFontSize(9)
       this.doc.setTextColor('#16a34a') // Green-600
 
-      this.doc.text('Acompte versé:', labelX, this.currentY, { align: 'right' })
-      this.doc.text(`-${salesOrder.downPaymentAmount.toFixed(2)} €`, totalsX + 50, this.currentY, { align: 'right' })
+      // Show title
+      const paymentTitle = hasPayments && salesOrder.payments!.length > 1 ? 'Paiements reçus:' : 'Acompte versé:'
+      this.doc.text(paymentTitle, labelX, this.currentY, { align: 'right' })
+      this.doc.text(`-${totalPayments.toFixed(2)} €`, totalsX + 50, this.currentY, { align: 'right' })
 
-      this.currentY += 5
+      // List individual payments if multiple
+      if (hasPayments && salesOrder.payments!.length > 1) {
+        this.currentY += 5
+        this.doc.setFont('helvetica', 'normal')
+        this.doc.setFontSize(7)
+        this.doc.setTextColor(this.textColor)
 
-      const remainingBalance = salesOrder.total - salesOrder.downPaymentAmount
-      this.doc.setTextColor(this.textColor)
-      this.doc.text('Solde restant:', labelX, this.currentY, { align: 'right' })
-      this.doc.text(`${remainingBalance.toFixed(2)} €`, totalsX + 50, this.currentY, { align: 'right' })
-
-      // Add payment details if available
-      if (salesOrder.downPaymentMethod || salesOrder.downPaymentDate) {
-        this.currentY += 8
+        salesOrder.payments!.forEach((payment, index) => {
+          const dateStr = payment.date ? new Date(payment.date).toLocaleDateString('fr-FR') : ''
+          const methodLabel = getMethodLabel(payment.method)
+          this.doc.text(
+            `  • ${parseFloat(String(payment.amount)).toFixed(2)} € (${methodLabel}${dateStr ? ' - ' + dateStr : ''})`,
+            labelX - 35,
+            this.currentY,
+            { align: 'left' }
+          )
+          this.currentY += 3.5
+        })
+        this.currentY -= 1 // Adjust for last item
+      } else if (hasPayments && salesOrder.payments!.length === 1) {
+        // Single payment - show details inline
+        const payment = salesOrder.payments![0]
+        this.currentY += 4
         this.doc.setFont('helvetica', 'normal')
         this.doc.setFontSize(8)
         this.doc.setTextColor(this.textColor)
-
-        if (salesOrder.downPaymentMethod) {
-          const methodLabel = salesOrder.downPaymentMethod === 'especes' ? 'Espèces' :
-                             salesOrder.downPaymentMethod === 'carte' ? 'Carte bancaire' :
-                             salesOrder.downPaymentMethod === 'virement' ? 'Virement' :
-                             salesOrder.downPaymentMethod === 'cheque' ? 'Chèque' :
-                             salesOrder.downPaymentMethod
-          this.doc.text(`Mode de paiement: ${methodLabel}`, labelX - 35, this.currentY, { align: 'left' })
+        const dateStr = payment.date ? new Date(payment.date).toLocaleDateString('fr-FR') : ''
+        const methodLabel = getMethodLabel(payment.method)
+        this.doc.text(`Mode: ${methodLabel}${dateStr ? ' - Date: ' + dateStr : ''}`, labelX - 35, this.currentY, { align: 'left' })
+      } else if (hasLegacyDownPayment) {
+        // Legacy single payment
+        if (salesOrder.downPaymentMethod || salesOrder.downPaymentDate) {
           this.currentY += 4
-        }
-
-        if (salesOrder.downPaymentDate) {
-          const dateStr = salesOrder.downPaymentDate.toLocaleDateString('fr-FR')
-          this.doc.text(`Date de paiement: ${dateStr}`, labelX - 35, this.currentY, { align: 'left' })
+          this.doc.setFont('helvetica', 'normal')
+          this.doc.setFontSize(8)
+          this.doc.setTextColor(this.textColor)
+          if (salesOrder.downPaymentMethod) {
+            const methodLabel = getMethodLabel(salesOrder.downPaymentMethod)
+            this.doc.text(`Mode: ${methodLabel}`, labelX - 35, this.currentY, { align: 'left' })
+            this.currentY += 3
+          }
+          if (salesOrder.downPaymentDate) {
+            const dateStr = salesOrder.downPaymentDate.toLocaleDateString('fr-FR')
+            this.doc.text(`Date: ${dateStr}`, labelX - 35, this.currentY, { align: 'left' })
+          }
         }
       }
+
+      // Remaining balance
+      this.currentY += 5
+      this.doc.setFont('helvetica', 'bold')
+      this.doc.setFontSize(9)
+      const remainingBalance = salesOrder.total - totalPayments
+      this.doc.setTextColor(this.textColor)
+      this.doc.text('Solde restant:', labelX, this.currentY, { align: 'right' })
+      this.doc.text(`${remainingBalance.toFixed(2)} €`, totalsX + 50, this.currentY, { align: 'right' })
     }
 
     // Custom footer for sales order
@@ -862,53 +924,100 @@ export class PDFGenerator {
     this.drawItemsTable(invoice.items)
     this.drawTotals(quotationFormat)
 
-    // Payment information for invoice
+    // Payment information for invoice (supports multiple payments)
+    const hasPayments = invoice.payments && invoice.payments.length > 0
+    const hasLegacyDownPayment = invoice.downPaymentAmount && invoice.downPaymentAmount > 0
+
+    // Helper function to get payment method label
+    const getMethodLabel = (method: string) => {
+      return method === 'especes' ? 'Espèces' :
+             method === 'carte' ? 'Carte bancaire' :
+             method === 'virement' ? 'Virement' :
+             method === 'cheque' ? 'Chèque' : method
+    }
+
     // Only show payment breakdown if invoice is NOT fully paid
     if (invoice.status !== 'payee') {
-      if (invoice.downPaymentAmount && invoice.downPaymentAmount > 0) {
+      if (hasPayments || hasLegacyDownPayment) {
         this.currentY += 8
         const totalsX = this.pageWidth - this.margin - 60
         const labelX = totalsX - 35
+
+        // Calculate total payments
+        let totalPayments = 0
+        if (hasPayments) {
+          totalPayments = invoice.payments!.reduce((sum, p) => sum + parseFloat(String(p.amount)), 0)
+        } else if (hasLegacyDownPayment) {
+          totalPayments = invoice.downPaymentAmount!
+        }
 
         this.doc.setFont('helvetica', 'bold')
         this.doc.setFontSize(9)
         this.doc.setTextColor('#16a34a') // Green-600
 
-        this.doc.text('Acompte versé:', labelX, this.currentY, { align: 'right' })
-        this.doc.text(`-${invoice.downPaymentAmount.toFixed(2)} €`, totalsX + 50, this.currentY, { align: 'right' })
+        // Show title based on number of payments
+        const paymentTitle = hasPayments && invoice.payments!.length > 1 ? 'Paiements reçus:' : 'Acompte versé:'
+        this.doc.text(paymentTitle, labelX, this.currentY, { align: 'right' })
+        this.doc.text(`-${totalPayments.toFixed(2)} €`, totalsX + 50, this.currentY, { align: 'right' })
 
-        this.currentY += 5
+        // List individual payments if multiple
+        if (hasPayments && invoice.payments!.length > 1) {
+          this.currentY += 5
+          this.doc.setFont('helvetica', 'normal')
+          this.doc.setFontSize(7)
+          this.doc.setTextColor(this.textColor)
 
-        // Calculate remaining balance
-        const remainingBalance = invoice.total - invoice.downPaymentAmount
-        this.doc.setTextColor(this.textColor)
-        this.doc.text('Solde dû:', labelX, this.currentY, { align: 'right' })
-        this.doc.text(`${remainingBalance.toFixed(2)} €`, totalsX + 50, this.currentY, { align: 'right' })
-
-        // Add payment details if available
-        if (invoice.downPaymentMethod || invoice.downPaymentDate) {
-          this.currentY += 8
+          invoice.payments!.forEach((payment) => {
+            const dateStr = payment.date ? new Date(payment.date).toLocaleDateString('fr-FR') : ''
+            const methodLabel = getMethodLabel(payment.method)
+            this.doc.text(
+              `  • ${parseFloat(String(payment.amount)).toFixed(2)} € (${methodLabel}${dateStr ? ' - ' + dateStr : ''})`,
+              labelX - 35,
+              this.currentY,
+              { align: 'left' }
+            )
+            this.currentY += 3.5
+          })
+          this.currentY -= 1 // Adjust for last item
+        } else if (hasPayments && invoice.payments!.length === 1) {
+          // Single payment - show details inline
+          const payment = invoice.payments![0]
+          this.currentY += 4
           this.doc.setFont('helvetica', 'normal')
           this.doc.setFontSize(8)
           this.doc.setTextColor(this.textColor)
-
-          if (invoice.downPaymentMethod) {
-            const methodLabel = invoice.downPaymentMethod === 'especes' ? 'Espèces' :
-                               invoice.downPaymentMethod === 'carte' ? 'Carte bancaire' :
-                               invoice.downPaymentMethod === 'virement' ? 'Virement' :
-                               invoice.downPaymentMethod === 'cheque' ? 'Chèque' :
-                               invoice.downPaymentMethod
-            this.doc.text(`Acompte payé par: ${methodLabel}`, labelX - 35, this.currentY, { align: 'left' })
+          const dateStr = payment.date ? new Date(payment.date).toLocaleDateString('fr-FR') : ''
+          const methodLabel = getMethodLabel(payment.method)
+          this.doc.text(`Mode: ${methodLabel}${dateStr ? ' - Date: ' + dateStr : ''}`, labelX - 35, this.currentY, { align: 'left' })
+        } else if (hasLegacyDownPayment) {
+          // Legacy single payment
+          if (invoice.downPaymentMethod || invoice.downPaymentDate) {
             this.currentY += 4
-          }
-
-          if (invoice.downPaymentDate) {
-            const dateStr = invoice.downPaymentDate.toLocaleDateString('fr-FR')
-            this.doc.text(`Date de l'acompte: ${dateStr}`, labelX - 35, this.currentY, { align: 'left' })
+            this.doc.setFont('helvetica', 'normal')
+            this.doc.setFontSize(8)
+            this.doc.setTextColor(this.textColor)
+            if (invoice.downPaymentMethod) {
+              const methodLabel = getMethodLabel(invoice.downPaymentMethod)
+              this.doc.text(`Mode: ${methodLabel}`, labelX - 35, this.currentY, { align: 'left' })
+              this.currentY += 3
+            }
+            if (invoice.downPaymentDate) {
+              const dateStr = invoice.downPaymentDate.toLocaleDateString('fr-FR')
+              this.doc.text(`Date: ${dateStr}`, labelX - 35, this.currentY, { align: 'left' })
+            }
           }
         }
+
+        // Remaining balance
+        this.currentY += 5
+        this.doc.setFont('helvetica', 'bold')
+        this.doc.setFontSize(9)
+        const remainingBalance = invoice.total - totalPayments
+        this.doc.setTextColor(this.textColor)
+        this.doc.text('Solde dû:', labelX, this.currentY, { align: 'right' })
+        this.doc.text(`${remainingBalance.toFixed(2)} €`, totalsX + 50, this.currentY, { align: 'right' })
       } else if (invoice.amountDue !== undefined && invoice.amountDue > 0) {
-        // Legacy: show remaining amount if no down payment but still unpaid
+        // No payments yet - show remaining amount
         this.currentY += 8
         const totalsX = this.pageWidth - this.margin - 60
         const labelX = totalsX - 35
@@ -1063,4 +1172,4 @@ export const generateInvoicePDF = (
 }
 
 // Export types for external use
-export type { Company, Client, QuotationItem, Quotation, SalesOrder, Invoice }
+export type { Company, Client, QuotationItem, Quotation, SalesOrder, Invoice, Payment }

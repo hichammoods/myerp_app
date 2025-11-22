@@ -178,6 +178,7 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
         c.address_zip as contact_postal_code,
         c.address_country as contact_country,
         so.order_number,
+        so.payments,
         so.down_payment_amount,
         so.down_payment_method,
         so.down_payment_date,
