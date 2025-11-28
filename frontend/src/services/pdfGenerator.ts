@@ -308,7 +308,7 @@ export class PDFGenerator {
     this.currentY = Math.max(this.currentY + 6, clientBoxY + clientBoxHeight)
   }
 
-  private drawItemsTable(items: QuotationItem[]) {
+  private drawItemsTable(items: QuotationItem[], showPrices: boolean = true) {
     this.currentY += 6
 
     // Table headers - removed TVA column as per business decision (individuals not subject to VAT, no per-line tax display)
@@ -370,11 +370,12 @@ export class PDFGenerator {
       currentX += columnWidths[1]
 
       // Unit price - right aligned
-      this.doc.text(`${item.unitPrice.toFixed(2)}€`, currentX + columnWidths[2] - 2, this.currentY + 4, { align: 'right' })
+      const unitPriceText = showPrices ? `${item.unitPrice.toFixed(2)}€` : '---'
+      this.doc.text(unitPriceText, currentX + columnWidths[2] - 2, this.currentY + 4, { align: 'right' })
       currentX += columnWidths[2]
 
       // Discount - centered
-      if (item.discount) {
+      if (showPrices && item.discount) {
         const discountText = item.discountType === 'percent'
           ? `${item.discount}%`
           : `${item.discount.toFixed(2)}€`
@@ -385,8 +386,9 @@ export class PDFGenerator {
       currentX += columnWidths[3]
 
       // Total - right aligned with bold (removed tax column)
+      const totalText = showPrices ? `${item.total.toFixed(2)} €` : '---'
       this.doc.setFont('helvetica', 'bold')
-      this.doc.text(`${item.total.toFixed(2)} €`, currentX + columnWidths[4] - 2, this.currentY + 4, { align: 'right' })
+      this.doc.text(totalText, currentX + columnWidths[4] - 2, this.currentY + 4, { align: 'right' })
       this.doc.setFont('helvetica', 'normal')
 
       this.currentY += Math.max(6, lineCount * 3.5 + 2)
@@ -399,7 +401,7 @@ export class PDFGenerator {
     })
   }
 
-  private drawTotals(quotation: Quotation) {
+  private drawTotals(quotation: Quotation, showPrices: boolean = true) {
     this.currentY += 6
 
     const totalsX = this.pageWidth - this.margin - 60
@@ -410,34 +412,34 @@ export class PDFGenerator {
     this.doc.setFontSize(9)
     this.doc.setTextColor(this.textColor)
     this.doc.text('Sous-total HT:', labelX, this.currentY, { align: 'right' })
-    this.doc.text(`${quotation.subtotal.toFixed(2)} €`, totalsX + 50, this.currentY, { align: 'right' })
+    this.doc.text(showPrices ? `${quotation.subtotal.toFixed(2)} €` : '---', totalsX + 50, this.currentY, { align: 'right' })
 
     this.currentY += 5
 
     // Discount if any
     if (quotation.totalDiscount > 0) {
       this.doc.text('Remise totale:', labelX, this.currentY, { align: 'right' })
-      this.doc.text(`-${quotation.totalDiscount.toFixed(2)} €`, totalsX + 50, this.currentY, { align: 'right' })
+      this.doc.text(showPrices ? `-${quotation.totalDiscount.toFixed(2)} €` : '---', totalsX + 50, this.currentY, { align: 'right' })
       this.currentY += 5
     }
 
     // Shipping cost if any
     if (quotation.shippingCost && quotation.shippingCost > 0) {
       this.doc.text('Frais de livraison:', labelX, this.currentY, { align: 'right' })
-      this.doc.text(`${quotation.shippingCost.toFixed(2)} €`, totalsX + 50, this.currentY, { align: 'right' })
+      this.doc.text(showPrices ? `${quotation.shippingCost.toFixed(2)} €` : '---', totalsX + 50, this.currentY, { align: 'right' })
       this.currentY += 5
     }
 
     // Installation cost if any
     if (quotation.installationCost && quotation.installationCost > 0) {
       this.doc.text('Frais d\'installation:', labelX, this.currentY, { align: 'right' })
-      this.doc.text(`${quotation.installationCost.toFixed(2)} €`, totalsX + 50, this.currentY, { align: 'right' })
+      this.doc.text(showPrices ? `${quotation.installationCost.toFixed(2)} €` : '---', totalsX + 50, this.currentY, { align: 'right' })
       this.currentY += 5
     }
 
     // Tax
     this.doc.text('TVA:', labelX, this.currentY, { align: 'right' })
-    this.doc.text(`${quotation.totalTax.toFixed(2)} €`, totalsX + 50, this.currentY, { align: 'right' })
+    this.doc.text(showPrices ? `${quotation.totalTax.toFixed(2)} €` : '---', totalsX + 50, this.currentY, { align: 'right' })
 
     this.currentY += 6
 
@@ -453,7 +455,7 @@ export class PDFGenerator {
     this.doc.setFontSize(11)
     this.doc.setTextColor(this.primaryColor)
     this.doc.text('TOTAL TTC:', labelX, this.currentY, { align: 'right' })
-    this.doc.text(`${quotation.total.toFixed(2)} €`, totalsX + 50, this.currentY, { align: 'right' })
+    this.doc.text(showPrices ? `${quotation.total.toFixed(2)} €` : '---', totalsX + 50, this.currentY, { align: 'right' })
   }
 
   private drawFooter(quotation: Quotation) {
@@ -725,7 +727,8 @@ export class PDFGenerator {
     company: Company,
     salesOrder: SalesOrder,
     download: boolean = true,
-    filename?: string
+    filename?: string,
+    showPrices: boolean = true
   ): jsPDF {
     this.resetDoc()
 
@@ -741,14 +744,14 @@ export class PDFGenerator {
     // Draw all sections with sales order header
     this.drawSalesOrderHeader(company, salesOrder)
     this.drawClientInfo(salesOrder.client, quotationFormat, 'Date estimée de livraison:')
-    this.drawItemsTable(salesOrder.items)
-    this.drawTotals(quotationFormat)
+    this.drawItemsTable(salesOrder.items, showPrices)
+    this.drawTotals(quotationFormat, showPrices)
 
     // Payments section for sales order (supports multiple payments)
     const hasPayments = salesOrder.payments && salesOrder.payments.length > 0
     const hasLegacyDownPayment = salesOrder.downPaymentAmount && salesOrder.downPaymentAmount > 0
 
-    if (hasPayments || hasLegacyDownPayment) {
+    if (showPrices && (hasPayments || hasLegacyDownPayment)) {
       this.currentY += 8
       const totalsX = this.pageWidth - this.margin - 60
       const labelX = totalsX - 35
@@ -1155,10 +1158,11 @@ export const generateSalesOrderPDF = (
   company: Company,
   salesOrder: SalesOrder,
   download: boolean = true,
-  filename?: string
+  filename?: string,
+  showPrices: boolean = true
 ) => {
   const generator = new PDFGenerator()
-  return generator.generateSalesOrderPDF(company, salesOrder, download, filename)
+  return generator.generateSalesOrderPDF(company, salesOrder, download, filename, showPrices)
 }
 
 export const generateInvoicePDF = (

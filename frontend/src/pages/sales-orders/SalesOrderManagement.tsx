@@ -476,6 +476,103 @@ export function SalesOrderManagement() {
     }
   }
 
+  const handleDownloadPDFNoPrices = async (order: any) => {
+    try {
+      // Fetch company settings
+      const companyData = await settingsApi.getCompany()
+
+      // Fetch full order details if needed
+      const fullOrder = selectedOrder?.id === order.id ? selectedOrder : await salesOrdersApi.getById(order.id)
+
+      // Transform data to match PDF generator format (same as handleDownloadPDF)
+      const company: Company = {
+        name: companyData.company?.name || 'Votre Entreprise',
+        address: companyData.company?.address || '',
+        city: companyData.company?.city || '',
+        postalCode: companyData.company?.postal_code || '',
+        country: companyData.company?.country || 'France',
+        phone: companyData.company?.phone || '',
+        email: companyData.company?.email || '',
+        siret: companyData.company?.siret || undefined,
+        tva: companyData.company?.tva || undefined,
+      }
+
+      const salesOrder: SalesOrder = {
+        id: fullOrder.id,
+        orderNumber: fullOrder.order_number,
+        orderDate: new Date(fullOrder.order_date),
+        expectedDeliveryDate: fullOrder.expected_delivery_date ? new Date(fullOrder.expected_delivery_date) : undefined,
+        quotationNumber: fullOrder.quotation_number || undefined,
+        client: {
+          name: fullOrder.contact_name,
+          company: fullOrder.company_name || undefined,
+          address: fullOrder.contact_address || '',
+          city: fullOrder.contact_city || '',
+          postalCode: fullOrder.contact_postal_code || '',
+          country: fullOrder.contact_country || 'France',
+          phone: fullOrder.contact_phone || undefined,
+          email: fullOrder.contact_email || undefined,
+        },
+        items: (fullOrder.items || []).map((item: any) => {
+          // Build description with custom components if present
+          let description = item.product_name
+
+          // Add custom components details if this is a customized product
+          if (item.is_customized && item.custom_components && item.custom_components.length > 0) {
+            description += '\nPersonnalisation:'
+            item.custom_components.forEach((comp: any) => {
+              description += `\n  • ${comp.component_name}`
+              if (comp.quantity) description += `\n    Quantité: ${comp.quantity}`
+              if (comp.material_name) description += `\n    Matériau: ${comp.material_name}`
+              if (comp.finish_name) description += `\n    Finition: ${comp.finish_name}`
+              if (comp.notes) description += `\n    Note: ${comp.notes}`
+            })
+          }
+
+          // Add user description if present
+          if (item.description && item.description.trim()) {
+            description += '\n' + item.description
+          }
+
+          return {
+            id: item.id,
+            description,
+            quantity: parseFloat(item.quantity),
+            unitPrice: parseFloat(item.unit_price),
+            discount: parseFloat(item.discount_percent) || 0,
+            discountType: 'percent' as const,
+            tax: parseFloat(item.tax_rate) || 20,
+            total: parseFloat(item.line_total),
+          }
+        }),
+        subtotal: parseFloat(fullOrder.subtotal),
+        totalDiscount: parseFloat(fullOrder.discount_amount) || 0,
+        shippingCost: parseFloat(fullOrder.shipping_cost) || 0,
+        installationCost: parseFloat(fullOrder.installation_cost) || 0,
+        totalTax: parseFloat(fullOrder.tax_amount) || 0,
+        total: parseFloat(fullOrder.total_amount),
+        // Multiple payments support
+        payments: fullOrder.payments || [],
+        // Legacy single payment fields (for backwards compatibility)
+        downPaymentAmount: fullOrder.down_payment_amount ? parseFloat(fullOrder.down_payment_amount) : undefined,
+        downPaymentMethod: fullOrder.down_payment_method || undefined,
+        downPaymentDate: fullOrder.down_payment_date ? new Date(fullOrder.down_payment_date) : undefined,
+        downPaymentNotes: fullOrder.down_payment_notes || undefined,
+        notes: fullOrder.notes || undefined,
+        termsAndConditions: fullOrder.terms_conditions || undefined,
+        deliveryAddress: fullOrder.delivery_address || undefined,
+        status: fullOrder.status,
+      }
+
+      // Generate PDF without prices (showPrices = false)
+      generateSalesOrderPDF(company, salesOrder, true, undefined, false)
+      toast.success('PDF sans prix téléchargé avec succès')
+    } catch (error) {
+      console.error('Error generating PDF:', error)
+      toast.error('Erreur lors de la génération du PDF')
+    }
+  }
+
   const getStatusBadgeVariant = (status: string): any => {
     switch (status) {
       case 'en_cours':
@@ -722,6 +819,10 @@ export function SalesOrderManagement() {
                       <DropdownMenuItem onClick={() => handleDownloadPDF(order)}>
                         <Download className="mr-2 h-4 w-4" />
                         Télécharger PDF
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleDownloadPDFNoPrices(order)}>
+                        <Download className="mr-2 h-4 w-4" />
+                        Télécharger PDF sans prix
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       {order.status === 'en_cours' && (
