@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
+import { NotificationsBell } from './NotificationsBell'
 
 const allNavigation = [
   { name: 'Tableau de bord', href: '/dashboard', icon: LayoutDashboard, roles: ['admin', 'sales', 'inventory_manager'] },
@@ -114,6 +115,13 @@ export function Layout() {
 
       {/* Main content */}
       <div className="lg:pl-64">
+        {/* Top header bar with notifications */}
+        <div className="sticky top-0 z-30 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 lg:px-8 py-3">
+          <div className="flex items-center justify-end">
+            <NotificationsBell />
+          </div>
+        </div>
+
         <main className="p-4 lg:p-8">
           <Outlet />
         </main>

@@ -30,7 +30,8 @@ import {
   Plus,
   Pencil,
   Trash2,
-  CreditCard
+  CreditCard,
+  FolderOpen
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -56,6 +57,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
+import { DocumentsModal } from './DocumentsModal'
 
 // Payment type definition
 interface Payment {
@@ -92,6 +94,13 @@ export function SalesOrderManagement() {
     date: new Date().toISOString().split('T')[0],
     notes: ''
   })
+
+  // Documents modal state
+  const [documentsModal, setDocumentsModal] = useState<{
+    open: boolean;
+    orderId: string | null;
+    orderNumber: string | null;
+  }>({ open: false, orderId: null, orderNumber: null })
 
   // Debounce search input
   useEffect(() => {
@@ -824,6 +833,10 @@ export function SalesOrderManagement() {
                         <Download className="mr-2 h-4 w-4" />
                         Télécharger PDF sans prix
                       </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setDocumentsModal({ open: true, orderId: order.id, orderNumber: order.order_number })}>
+                        <FolderOpen className="mr-2 h-4 w-4" />
+                        Voir documents
+                      </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       {order.status === 'en_cours' && (
                         <DropdownMenuItem onClick={() => handleUpdateStatus(order.id, 'en_preparation')}>
@@ -1200,6 +1213,15 @@ export function SalesOrderManagement() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Documents Modal */}
+      {documentsModal.open && documentsModal.orderId && documentsModal.orderNumber && (
+        <DocumentsModal
+          orderId={documentsModal.orderId}
+          orderNumber={documentsModal.orderNumber}
+          onClose={() => setDocumentsModal({ open: false, orderId: null, orderNumber: null })}
+        />
+      )}
     </div>
   )
 }

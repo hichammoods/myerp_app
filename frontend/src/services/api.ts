@@ -494,6 +494,35 @@ export const salesOrdersApi = {
     const response = await api.delete(`/sales-orders/${orderId}/payments/${paymentId}`);
     return response.data;
   },
+
+  // Document management
+  uploadDocument: async (orderId: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await api.post(`/sales-orders/${orderId}/documents`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
+
+  getDocuments: async (orderId: string) => {
+    const response = await api.get(`/sales-orders/${orderId}/documents`);
+    return response.data;
+  },
+
+  downloadDocument: async (orderId: string, docId: string) => {
+    const response = await api.get(`/sales-orders/${orderId}/documents/${docId}/download`, {
+      responseType: 'blob',
+    });
+    return response.data;
+  },
+
+  deleteDocument: async (orderId: string, docId: string) => {
+    const response = await api.delete(`/sales-orders/${orderId}/documents/${docId}`);
+    return response.data;
+  },
 };
 
 // Invoices API
@@ -610,6 +639,34 @@ export const usersApi = {
 
   getRoles: async () => {
     const response = await api.get('/users/meta/roles');
+    return response.data;
+  },
+};
+
+// Notifications API
+export const notificationsApi = {
+  getAll: async (params?: { limit?: number; unread_only?: boolean }) => {
+    const response = await api.get('/notifications', { params });
+    return response.data;
+  },
+
+  getUnreadCount: async () => {
+    const response = await api.get('/notifications/unread-count');
+    return response.data;
+  },
+
+  markAsRead: async (id: string) => {
+    const response = await api.patch(`/notifications/${id}/read`);
+    return response.data;
+  },
+
+  markAllAsRead: async () => {
+    const response = await api.post('/notifications/mark-all-read');
+    return response.data;
+  },
+
+  delete: async (id: string) => {
+    const response = await api.delete(`/notifications/${id}`);
     return response.data;
   },
 };

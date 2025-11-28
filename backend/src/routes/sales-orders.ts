@@ -4,6 +4,9 @@ import { logger } from '../utils/logger';
 import { redisClient } from '../database/redis';
 import { authenticateToken, authorizeRole } from '../middleware/auth';
 import { body, validationResult, query } from 'express-validator';
+import { uploadDocument, generateUniqueFilename } from '../middleware/upload';
+import { minioClient } from '../config/minio';
+import { notifyAllUsers } from './notifications';
 
 const router = Router();
 
@@ -510,6 +513,25 @@ router.post('/', authenticateToken, [
 
       return { salesOrder, stockWarnings };
     });
+
+    // Notify all users about the new sales order
+    try {
+      const creatorName = (req as any).user?.firstName && (req as any).user?.lastName
+        ? `${(req as any).user.firstName} ${(req as any).user.lastName}`
+        : 'Un utilisateur';
+
+      await notifyAllUsers({
+        type: 'sales_order_created',
+        title: 'Nouvelle commande créée',
+        message: `${creatorName} a créé la commande N°${result.salesOrder.order_number}`,
+        relatedEntityType: 'sales_order',
+        relatedEntityId: result.salesOrder.id,
+        excludeUserId: (req as any).user?.userId
+      });
+    } catch (notifError) {
+      logger.error('Error sending notifications:', notifError);
+      // Don't fail the request if notifications fail
+    }
 
     // Clear caches
     await clearOrderCache();
@@ -1137,6 +1159,150 @@ router.get('/stats/overview', authenticateToken, async (req: Request, res: Respo
   } catch (error) {
     logger.error('Error fetching sales order statistics:', error);
     res.status(500).json({ error: 'Failed to fetch statistics' });
+  }
+});
+
+// ========== DOCUMENT MANAGEMENT ENDPOINTS ==========
+
+// UPLOAD document for sales order
+router.post('/:id/documents', authenticateToken, uploadDocument.single('file'), async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const file = req.file;
+    const userId = (req as any).user?.id;
+
+    if (!file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    // Generate unique filename
+    const uniqueFilename = generateUniqueFilename(file.originalname);
+    const filePath = `sales-orders/${id}/${uniqueFilename}`;
+
+    // Upload to MinIO
+    await minioClient.putObject(
+      process.env.MINIO_BUCKET_NAME || 'myerp-uploads',
+      filePath,
+      file.buffer,
+      file.size,
+      {
+        'Content-Type': file.mimetype,
+        'Original-Filename': file.originalname
+      }
+    );
+
+    // Save document metadata to database
+    const result = await db.query(
+      `INSERT INTO sales_order_documents
+       (sales_order_id, file_name, original_file_name, file_path, file_size, mime_type, uploaded_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING *`,
+      [id, uniqueFilename, file.originalname, filePath, file.size, file.mimetype, userId]
+    );
+
+    logger.info(`Document uploaded for sales order ${id}: ${uniqueFilename}`);
+    await clearOrderCache();
+
+    res.status(201).json({
+      message: 'Document uploaded successfully',
+      document: result.rows[0]
+    });
+  } catch (error) {
+    logger.error('Error uploading document:', error);
+    res.status(500).json({ error: 'Failed to upload document' });
+  }
+});
+
+// GET all documents for a sales order
+router.get('/:id/documents', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const result = await db.query(
+      `SELECT d.*, u.email as uploaded_by_email
+       FROM sales_order_documents d
+       LEFT JOIN users u ON d.uploaded_by = u.id
+       WHERE d.sales_order_id = $1
+       ORDER BY d.created_at DESC`,
+      [id]
+    );
+
+    res.json({ documents: result.rows });
+  } catch (error) {
+    logger.error('Error fetching documents:', error);
+    res.status(500).json({ error: 'Failed to fetch documents' });
+  }
+});
+
+// DOWNLOAD document
+router.get('/:id/documents/:docId/download', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { id, docId } = req.params;
+
+    // Get document metadata
+    const result = await db.query(
+      'SELECT * FROM sales_order_documents WHERE id = $1 AND sales_order_id = $2',
+      [docId, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    const document = result.rows[0];
+
+    // Get file from MinIO
+    const dataStream = await minioClient.getObject(
+      process.env.MINIO_BUCKET_NAME || 'myerp-uploads',
+      document.file_path
+    );
+
+    // Set headers for download
+    res.setHeader('Content-Type', document.mime_type);
+    res.setHeader('Content-Disposition', `attachment; filename="${document.original_file_name}"`);
+    res.setHeader('Content-Length', document.file_size);
+
+    // Pipe the stream to response
+    dataStream.pipe(res);
+  } catch (error) {
+    logger.error('Error downloading document:', error);
+    res.status(500).json({ error: 'Failed to download document' });
+  }
+});
+
+// DELETE document
+router.delete('/:id/documents/:docId', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { id, docId } = req.params;
+
+    // Get document metadata
+    const result = await db.query(
+      'SELECT * FROM sales_order_documents WHERE id = $1 AND sales_order_id = $2',
+      [docId, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    const document = result.rows[0];
+
+    // Delete from MinIO
+    await minioClient.removeObject(
+      process.env.MINIO_BUCKET_NAME || 'myerp-uploads',
+      document.file_path
+    );
+
+    // Delete from database
+    await db.query('DELETE FROM sales_order_documents WHERE id = $1', [docId]);
+
+    logger.info(`Document deleted: ${document.file_name}`);
+    await clearOrderCache();
+
+    res.json({ message: 'Document deleted successfully' });
+  } catch (error) {
+    logger.error('Error deleting document:', error);
+    res.status(500).json({ error: 'Failed to delete document' });
   }
 });
 

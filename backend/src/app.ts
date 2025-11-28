@@ -24,6 +24,7 @@ import usersRouter from './routes/users';
 import backupRouter from './routes/backup';
 import testRouter from './routes/test-simple'; // Ultra-simple test routes
 import productCustomizationRouter from './routes/product-customization'; // Product customization endpoints
+import notificationsRouter from './routes/notifications';
 
 export class App {
   public express: Application;
@@ -95,6 +96,7 @@ export class App {
     this.express.use('/api/settings', settingsRouter);
     this.express.use('/api/inventory', inventoryRouter);
     this.express.use('/api/backup', backupRouter);
+    this.express.use('/api/notifications', notificationsRouter);
 
     // API documentation (only in development)
     if (process.env.NODE_ENV === 'development') {
