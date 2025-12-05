@@ -552,8 +552,8 @@ router.delete('/:id', authenticateToken, authorizeRole('admin'), async (req: Req
 // GET invoice statistics
 router.get('/stats/overview', authenticateToken, async (req: Request, res: Response) => {
   try {
-    // Get all-time stats (removed 30 days filter for accurate totals)
-    const stats = await db.query(`
+    // Get invoice stats
+    const invoiceStats = await db.query(`
       SELECT
         COUNT(*) as total_invoices,
         COUNT(CASE WHEN status = 'brouillon' THEN 1 END) as draft_count,
@@ -561,14 +561,41 @@ router.get('/stats/overview', authenticateToken, async (req: Request, res: Respo
         COUNT(CASE WHEN status = 'payee' THEN 1 END) as paid_count,
         COUNT(CASE WHEN status = 'en_retard' THEN 1 END) as overdue_count,
         COUNT(CASE WHEN status = 'annulee' THEN 1 END) as cancelled_count,
-        COALESCE(SUM(CASE WHEN status = 'payee' THEN total_amount ELSE 0 END), 0) as paid_revenue,
+        COALESCE(SUM(CASE WHEN status = 'payee' THEN total_amount ELSE 0 END), 0) as paid_invoices_total,
         COALESCE(SUM(CASE WHEN status IN ('envoyee', 'en_retard') THEN amount_due ELSE 0 END), 0) as outstanding_amount,
         COALESCE(SUM(total_amount), 0) as total_revenue,
-        COALESCE(AVG(total_amount), 0) as average_invoice_value
+        COALESCE(AVG(total_amount), 0) as average_invoice_value,
+        COALESCE(SUM(CASE WHEN status = 'payee' THEN down_payment_amount ELSE 0 END), 0) as paid_invoices_down_payments,
+        COALESCE(SUM(CASE WHEN status = 'payee' THEN amount_paid ELSE 0 END), 0) as paid_invoices_payments
       FROM invoices
     `);
 
-    res.json(stats.rows[0]);
+    // Get acomptes from sales orders that don't have paid invoices yet
+    // This captures acomptes received before the invoice is fully paid
+    const acomptesStats = await db.query(`
+      SELECT
+        COALESCE(SUM(CASE WHEN so.invoice_id IS NULL OR i.status != 'payee' THEN so.down_payment_amount ELSE 0 END), 0) as acomptes_not_in_paid_invoices
+      FROM sales_orders so
+      LEFT JOIN invoices i ON so.invoice_id = i.id
+      WHERE so.status != 'annule'
+        AND so.down_payment_amount > 0
+    `);
+
+    const invoiceData = invoiceStats.rows[0];
+    const acomptesData = acomptesStats.rows[0];
+
+    // CA Réalisé = paid invoices total + acomptes from non-paid-invoice orders
+    // For paid invoices, the down_payment_amount is already included in total_amount
+    // So we just add acomptes from orders that don't have paid invoices
+    const paidInvoicesTotal = parseFloat(invoiceData.paid_invoices_total || 0);
+    const acomptesNotInPaidInvoices = parseFloat(acomptesData.acomptes_not_in_paid_invoices || 0);
+    const paidRevenue = paidInvoicesTotal + acomptesNotInPaidInvoices;
+
+    res.json({
+      ...invoiceData,
+      paid_revenue: paidRevenue,
+      acomptes_received: acomptesNotInPaidInvoices // For transparency
+    });
   } catch (error) {
     logger.error('Error fetching invoice statistics:', error);
     res.status(500).json({ error: 'Failed to fetch statistics' });
