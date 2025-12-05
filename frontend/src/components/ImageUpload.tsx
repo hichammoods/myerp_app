@@ -184,7 +184,7 @@ export function ImageUpload({
       return
     }
 
-    console.log('productId exists, starting real upload to:', `http://localhost:4000/api/products/${productId}/upload-image`)
+    console.log('productId exists, starting real upload to:', `${import.meta.env.VITE_API_URL || 'http://localhost:4000/api'}/products/${productId}/upload-image`)
     try {
       const formData = new FormData()
       formData.append('image', file)
