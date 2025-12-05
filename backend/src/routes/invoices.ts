@@ -166,7 +166,8 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
       return res.json(JSON.parse(cached));
     }
 
-    const query = `
+    // First get the invoice basic info
+    const invoiceQuery = `
       SELECT
         i.*,
         c.first_name || ' ' || c.last_name as contact_name,
@@ -178,49 +179,74 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
         c.address_zip as contact_postal_code,
         c.address_country as contact_country,
         so.order_number,
-        so.payments,
         so.down_payment_method,
         so.down_payment_date,
         so.down_payment_notes,
-        q.quotation_number,
-        json_agg(
-          jsonb_build_object(
-            'id', ii.id,
-            'product_id', ii.product_id,
-            'product_name', ii.product_name,
-            'product_sku', ii.product_sku,
-            'description', ii.description,
-            'quantity', ii.quantity,
-            'unit_price', ii.unit_price,
-            'discount_percent', ii.discount_percent,
-            'discount_amount', ii.discount_amount,
-            'tax_rate', ii.tax_rate,
-            'tax_amount', ii.tax_amount,
-            'line_total', ii.line_total,
-            'is_customized', ii.is_customized,
-            'base_product_id', ii.base_product_id,
-            'custom_components', ii.custom_components
-          ) ORDER BY ii.created_at
-        ) FILTER (WHERE ii.id IS NOT NULL) as items
+        q.quotation_number
       FROM invoices i
       LEFT JOIN contacts c ON i.contact_id = c.id
       LEFT JOIN sales_orders so ON i.sales_order_id = so.id
       LEFT JOIN quotations q ON i.quotation_id = q.id
-      LEFT JOIN invoice_items ii ON i.id = ii.invoice_id
       WHERE i.id = $1
-      GROUP BY i.id, c.id, so.id, q.id
     `;
 
-    const result = await db.query(query, [id]);
+    const invoiceResult = await db.query(invoiceQuery, [id]);
 
-    if (result.rows.length === 0) {
+    if (invoiceResult.rows.length === 0) {
       return res.status(404).json({ error: 'Invoice not found' });
     }
 
-    // Cache for 10 minutes
-    await redisClient.setex(cacheKey, 600, JSON.stringify(result.rows[0]));
+    const invoice = invoiceResult.rows[0];
 
-    res.json(result.rows[0]);
+    // Get payments from sales order if exists
+    let payments = [];
+    if (invoice.sales_order_id) {
+      try {
+        const paymentsQuery = `SELECT payments FROM sales_orders WHERE id = $1`;
+        const paymentsResult = await db.query(paymentsQuery, [invoice.sales_order_id]);
+        if (paymentsResult.rows.length > 0 && paymentsResult.rows[0].payments) {
+          payments = paymentsResult.rows[0].payments;
+        }
+      } catch (err) {
+        logger.debug('Could not fetch payments:', err);
+      }
+    }
+
+    // Get invoice items separately
+    const itemsQuery = `
+      SELECT
+        ii.id,
+        ii.product_id,
+        ii.product_name,
+        ii.product_sku,
+        ii.description,
+        ii.quantity,
+        ii.unit_price,
+        ii.discount_percent,
+        ii.discount_amount,
+        ii.tax_rate,
+        ii.tax_amount,
+        ii.line_total,
+        ii.is_customized,
+        ii.base_product_id,
+        ii.custom_components
+      FROM invoice_items ii
+      WHERE ii.invoice_id = $1
+      ORDER BY ii.created_at
+    `;
+
+    const itemsResult = await db.query(itemsQuery, [id]);
+
+    const result = {
+      ...invoice,
+      payments,
+      items: itemsResult.rows
+    };
+
+    // Cache for 10 minutes
+    await redisClient.setex(cacheKey, 600, JSON.stringify(result));
+
+    res.json(result);
   } catch (error) {
     logger.error('Error fetching invoice:', error);
     res.status(500).json({ error: 'Failed to fetch invoice' });

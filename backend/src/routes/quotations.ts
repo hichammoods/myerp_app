@@ -208,7 +208,8 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
       return res.json(JSON.parse(cached));
     }
 
-    const query = `
+    // First get the quotation basic info
+    const quotationQuery = `
       SELECT
         q.*,
         c.first_name || ' ' || c.last_name as contact_name,
@@ -220,66 +221,96 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
         c.address_zip as contact_postal_code,
         c.address_country as contact_country,
         u.first_name || ' ' || u.last_name as sales_rep_name,
-        u.email as sales_rep_email,
-        json_agg(
-          jsonb_build_object(
-            'id', ql.id,
-            'product_id', ql.product_id,
-            'product_name', ql.product_name,
-            'product_sku', ql.product_sku,
-            'description', ql.description,
-            'quantity', ql.quantity,
-            'unit_price', ql.unit_price,
-            'discount_percent', ql.discount_percent,
-            'discount_amount', ql.discount_amount,
-            'tax_rate', ql.tax_rate,
-            'tax_amount', ql.tax_amount,
-            'line_total', ql.line_total,
-            'notes', ql.notes,
-            'is_optional', ql.is_optional,
-            'is_customized', ql.is_customized,
-            'base_product_id', ql.base_product_id,
-            'custom_components', (
-              SELECT COALESCE(json_agg(
-                jsonb_build_object(
-                  'id', qlc.id,
-                  'component_name', qlc.component_name,
-                  'component_type', qlc.component_type,
-                  'material_id', qlc.material_id,
-                  'material_name', m.name,
-                  'finish_id', qlc.finish_id,
-                  'finish_name', f.name,
-                  'quantity', qlc.quantity,
-                  'unit_cost', qlc.unit_cost,
-                  'upcharge_percentage', qlc.upcharge_percentage,
-                  'notes', qlc.notes
-                )
-              ), '[]'::json)
-              FROM quotation_line_components qlc
-              LEFT JOIN materials m ON qlc.material_id = m.id
-              LEFT JOIN finishes f ON qlc.finish_id = f.id
-              WHERE qlc.quotation_line_id = ql.id
-            )
-          ) ORDER BY ql.line_number
-        ) FILTER (WHERE ql.id IS NOT NULL) as line_items
+        u.email as sales_rep_email
       FROM quotations q
       LEFT JOIN contacts c ON q.contact_id = c.id
       LEFT JOIN users u ON q.sales_rep_id = u.id
-      LEFT JOIN quotation_lines ql ON q.id = ql.quotation_id
       WHERE q.id = $1
-      GROUP BY q.id, c.id, u.id
     `;
 
-    const result = await db.query(query, [id]);
+    const quotationResult = await db.query(quotationQuery, [id]);
 
-    if (result.rows.length === 0) {
+    if (quotationResult.rows.length === 0) {
       return res.status(404).json({ error: 'Quotation not found' });
     }
 
-    // Cache for 10 minutes
-    await redisClient.setex(cacheKey, 600, JSON.stringify(result.rows[0]));
+    const quotation = quotationResult.rows[0];
 
-    res.json(result.rows[0]);
+    // Get line items separately
+    const linesQuery = `
+      SELECT
+        ql.id,
+        ql.product_id,
+        ql.product_name,
+        ql.product_sku,
+        ql.description,
+        ql.quantity,
+        ql.unit_price,
+        ql.discount_percent,
+        ql.discount_amount,
+        ql.tax_rate,
+        ql.tax_amount,
+        ql.line_total,
+        ql.notes,
+        ql.is_optional,
+        ql.is_customized,
+        ql.base_product_id,
+        ql.line_number,
+        ql.section_id,
+        p.images as product_images
+      FROM quotation_lines ql
+      LEFT JOIN products p ON ql.product_id = p.id
+      WHERE ql.quotation_id = $1
+      ORDER BY ql.line_number
+    `;
+
+    const linesResult = await db.query(linesQuery, [id]);
+
+    // Get custom components for each line if the table exists
+    const lineItems = [];
+    for (const line of linesResult.rows) {
+      let customComponents = [];
+      try {
+        const componentsQuery = `
+          SELECT
+            qlc.id,
+            qlc.component_name,
+            qlc.component_type,
+            qlc.material_id,
+            m.name as material_name,
+            qlc.finish_id,
+            f.name as finish_name,
+            qlc.quantity,
+            qlc.unit_cost,
+            qlc.upcharge_percentage,
+            qlc.notes
+          FROM quotation_line_components qlc
+          LEFT JOIN materials m ON qlc.material_id = m.id
+          LEFT JOIN finishes f ON qlc.finish_id = f.id
+          WHERE qlc.quotation_line_id = $1
+        `;
+        const componentsResult = await db.query(componentsQuery, [line.id]);
+        customComponents = componentsResult.rows;
+      } catch (err) {
+        // Table might not exist, ignore
+        logger.debug('Could not fetch custom components:', err);
+      }
+
+      lineItems.push({
+        ...line,
+        custom_components: customComponents
+      });
+    }
+
+    const result = {
+      ...quotation,
+      line_items: lineItems
+    };
+
+    // Cache for 10 minutes
+    await redisClient.setex(cacheKey, 600, JSON.stringify(result));
+
+    res.json(result);
   } catch (error) {
     logger.error('Error fetching quotation:', error);
     res.status(500).json({ error: 'Failed to fetch quotation' });
