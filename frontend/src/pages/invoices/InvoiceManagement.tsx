@@ -90,8 +90,8 @@ export function InvoiceManagement() {
   })
 
   const invoices = invoicesData?.invoices || []
-  const totalCount = invoicesData?.total || 0
-  const totalPages = Math.ceil(totalCount / pageSize)
+  const totalCount = invoicesData?.pagination?.total || 0
+  const totalPages = invoicesData?.pagination?.totalPages || Math.ceil(totalCount / pageSize)
 
   const { data: statsData } = useQuery({
     queryKey: ['invoice-stats'],

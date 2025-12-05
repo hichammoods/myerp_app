@@ -133,8 +133,8 @@ export function SalesOrderManagement() {
   })
 
   const orders = ordersData?.sales_orders || []
-  const totalCount = ordersData?.total || 0
-  const totalPages = Math.ceil(totalCount / pageSize)
+  const totalCount = ordersData?.pagination?.total || 0
+  const totalPages = ordersData?.pagination?.totalPages || Math.ceil(totalCount / pageSize)
 
   // Fetch statistics
   const { data: statsData } = useQuery({
