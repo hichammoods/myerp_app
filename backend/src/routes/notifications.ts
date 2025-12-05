@@ -7,7 +7,7 @@ const router = express.Router();
 // Get all notifications for current user
 router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.user?.userId;
+    const userId = req.user?.id;
     const { limit = 50, unread_only = 'false' } = req.query;
 
     let query = `
@@ -48,7 +48,7 @@ router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
 // Get unread count
 router.get('/unread-count', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.user?.userId;
+    const userId = req.user?.id;
 
     const result = await db.query(
       `SELECT COUNT(*) as count FROM notifications WHERE user_id = $1 AND is_read = FALSE`,
@@ -71,7 +71,7 @@ router.get('/unread-count', authenticateToken, async (req: AuthRequest, res: Res
 // Mark notification as read
 router.patch('/:id/read', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.user?.userId;
+    const userId = req.user?.id;
     const { id } = req.params;
 
     const result = await db.query(
@@ -105,7 +105,7 @@ router.patch('/:id/read', authenticateToken, async (req: AuthRequest, res: Respo
 // Mark all notifications as read
 router.post('/mark-all-read', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.user?.userId;
+    const userId = req.user?.id;
 
     await db.query(
       `UPDATE notifications
@@ -130,7 +130,7 @@ router.post('/mark-all-read', authenticateToken, async (req: AuthRequest, res: R
 // Delete notification
 router.delete('/:id', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.user?.userId;
+    const userId = req.user?.id;
     const { id } = req.params;
 
     const result = await db.query(
