@@ -59,10 +59,10 @@ export function Dashboard() {
       loading: loadingQuotations,
     },
     {
-      title: 'Chiffre d\'Affaires',
+      title: 'CA Réalisé',
       value: formatCurrency(parseFloat(invoiceStats?.paid_revenue || 0)),
       icon: Euro,
-      subtext: `${formatCurrency(parseFloat(invoiceStats?.outstanding_amount || 0))} en attente`,
+      subtext: 'Factures payées y compris acomptes',
       loading: loadingInvoices,
     },
   ]

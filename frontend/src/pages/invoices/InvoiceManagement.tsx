@@ -320,11 +320,14 @@ export function InvoiceManagement() {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">CA Encaissé</CardTitle>
+            <CardTitle className="text-sm font-medium">CA Réalisé</CardTitle>
             <Euro className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{formatCurrency(stats.paidRevenue)}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Factures payées y compris acomptes
+            </p>
           </CardContent>
         </Card>
         <Card>
