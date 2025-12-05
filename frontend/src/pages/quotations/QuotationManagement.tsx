@@ -517,14 +517,12 @@ export function QuotationManagement() {
         return {
           id: item.id,
           description,
-          quantity: item.quantity,
-          unitPrice: item.unit_price,
-          discount: item.discount_percent || 0,
+          quantity: parseFloat(item.quantity) || 0,
+          unitPrice: parseFloat(item.unit_price) || 0,
+          discount: parseFloat(item.discount_percent) || 0,
           discountType: 'percent' as const,
-          tax: item.tax_rate || 20,
-          total: item.line_total || total,
-          is_customized: item.is_customized,
-          custom_components: item.custom_components
+          tax: parseFloat(item.tax_rate) || 20,
+          total: parseFloat(item.line_total) || total
         }
       })
 
