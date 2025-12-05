@@ -31,7 +31,11 @@ import {
   TrendingUp,
   TrendingDown,
   User,
-  Package
+  Package,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -62,6 +66,8 @@ export function QuotationManagement() {
   const [showConvertDialog, setShowConvertDialog] = useState(false)
   const [quotationToConvert, setQuotationToConvert] = useState<any>(null)
   const [expectedDeliveryDate, setExpectedDeliveryDate] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize] = useState(20)
   const [downPaymentAmount, setDownPaymentAmount] = useState('')
   const [downPaymentMethod, setDownPaymentMethod] = useState('')
   const [downPaymentDate, setDownPaymentDate] = useState('')
@@ -345,6 +351,19 @@ export function QuotationManagement() {
 
     return filtered
   }, [quotations, filterPeriod, sortBy])
+
+  // Pagination calculations
+  const totalCount = filteredQuotations.length
+  const totalPages = Math.ceil(totalCount / pageSize)
+  const paginatedQuotations = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize
+    return filteredQuotations.slice(startIndex, startIndex + pageSize)
+  }, [filteredQuotations, currentPage, pageSize])
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchTerm, filterStatus, filterSalesRep, filterPeriod, sortBy])
 
   const handleSaveQuotation = (data: any) => {
     if (editingQuotation) {
@@ -769,7 +788,7 @@ export function QuotationManagement() {
                   Aucun devis trouvé
                 </div>
               ) : (
-                filteredQuotations.map(quotation => (
+                paginatedQuotations.map(quotation => (
                 <div
                   key={quotation.id}
                   className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
@@ -884,6 +903,52 @@ export function QuotationManagement() {
                   </DropdownMenu>
                 </div>
               ))
+              )}
+
+              {/* Pagination Controls */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between mt-6 pt-4 border-t">
+                  <div className="text-sm text-gray-500">
+                    Affichage {((currentPage - 1) * pageSize) + 1} - {Math.min(currentPage * pageSize, totalCount)} sur {totalCount} devis
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(1)}
+                      disabled={currentPage === 1}
+                    >
+                      <ChevronsLeft className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <span className="text-sm px-3">
+                      Page {currentPage} sur {totalPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      disabled={currentPage === totalPages}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(totalPages)}
+                      disabled={currentPage === totalPages}
+                    >
+                      <ChevronsRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
               )}
             </div>
           )}
