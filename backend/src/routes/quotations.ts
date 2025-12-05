@@ -4,6 +4,7 @@ import { logger } from '../utils/logger';
 import { redisClient } from '../database/redis';
 import { authenticateToken, authorizeRole } from '../middleware/auth';
 import { body, validationResult, query } from 'express-validator';
+import { notifyAllUsers } from './notifications';
 
 const router = Router();
 
@@ -458,6 +459,21 @@ router.post('/', authenticateToken, [
 
     // Clear cache
     await clearQuotationCache();
+
+    // Notify all users about the new quotation
+    try {
+      const creatorName = (req as any).user?.name || 'Un utilisateur';
+      await notifyAllUsers({
+        type: 'quotation_created',
+        title: 'Nouveau devis créé',
+        message: `${creatorName} a créé le devis N°${result.quotation_number}`,
+        relatedEntityType: 'quotation',
+        relatedEntityId: result.id,
+        excludeUserId: (req as any).user?.id
+      });
+    } catch (notifError) {
+      logger.error('Error sending notifications:', notifError);
+    }
 
     res.status(201).json(result);
   } catch (error) {

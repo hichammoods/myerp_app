@@ -75,9 +75,19 @@ export const NotificationsBell: React.FC = () => {
     }
 
     // Navigate to related entity
-    if (notification.related_entity_type === 'sales_order' && notification.related_entity_id) {
+    if (notification.related_entity_type && notification.related_entity_id) {
       setIsOpen(false);
-      navigate('/sales-orders');
+      switch (notification.related_entity_type) {
+        case 'sales_order':
+          navigate('/sales-orders');
+          break;
+        case 'quotation':
+          navigate('/quotations');
+          break;
+        case 'invoice':
+          navigate('/invoices');
+          break;
+      }
     }
   };
 
@@ -163,39 +173,39 @@ export const NotificationsBell: React.FC = () => {
                 {notifications.map((notification: Notification) => (
                   <div
                     key={notification.id}
-                    className={`p-4 hover:bg-gray-50 cursor-pointer transition-colors ${
+                    className={`px-3 py-2 hover:bg-gray-50 cursor-pointer transition-colors ${
                       !notification.is_read ? 'bg-blue-50' : ''
                     }`}
                     onClick={() => handleNotificationClick(notification)}
                   >
-                    <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5">
                           {!notification.is_read && (
-                            <div className="w-2 h-2 bg-blue-600 rounded-full flex-shrink-0" />
+                            <div className="w-1.5 h-1.5 bg-blue-600 rounded-full flex-shrink-0" />
                           )}
-                          <p className={`text-sm font-medium ${
+                          <p className={`text-xs font-medium ${
                             !notification.is_read ? 'text-gray-900' : 'text-gray-700'
                           }`}>
                             {notification.title}
                           </p>
                         </div>
-                        <p className="text-sm text-gray-600 mt-1">{notification.message}</p>
-                        <p className="text-xs text-gray-400 mt-1">
+                        <p className="text-xs text-gray-600 mt-0.5">{notification.message}</p>
+                        <p className="text-[10px] text-gray-400 mt-0.5">
                           {formatTimeAgo(notification.created_at)}
                         </p>
                       </div>
-                      <div className="flex items-center gap-1 flex-shrink-0">
+                      <div className="flex items-center gap-0.5 flex-shrink-0">
                         {!notification.is_read && (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
                               markAsReadMutation.mutate(notification.id);
                             }}
-                            className="p-1 text-gray-400 hover:text-blue-600 rounded"
+                            className="p-0.5 text-gray-400 hover:text-blue-600 rounded"
                             title="Marquer comme lu"
                           >
-                            <Check className="h-4 w-4" />
+                            <Check className="h-3.5 w-3.5" />
                           </button>
                         )}
                         <button
@@ -203,10 +213,10 @@ export const NotificationsBell: React.FC = () => {
                             e.stopPropagation();
                             deleteMutation.mutate(notification.id);
                           }}
-                          className="p-1 text-gray-400 hover:text-red-600 rounded"
+                          className="p-0.5 text-gray-400 hover:text-red-600 rounded"
                           title="Supprimer"
                         >
-                          <X className="h-4 w-4" />
+                          <X className="h-3.5 w-3.5" />
                         </button>
                       </div>
                     </div>

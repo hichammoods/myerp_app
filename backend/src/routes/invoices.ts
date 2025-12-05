@@ -4,6 +4,7 @@ import { logger } from '../utils/logger';
 import { redisClient } from '../database/redis';
 import { authenticateToken, authorizeRole } from '../middleware/auth';
 import { body, validationResult, query } from 'express-validator';
+import { notifyAllUsers } from './notifications';
 
 const router = Router();
 
@@ -375,6 +376,21 @@ router.post('/', authenticateToken, [
     await clearInvoiceCache();
     await redisClient.del('sales_orders:*');
     await redisClient.del(`sales_order:${sales_order_id}`);
+
+    // Notify all users about the new invoice
+    try {
+      const creatorName = (req as any).user?.name || 'Un utilisateur';
+      await notifyAllUsers({
+        type: 'invoice_created',
+        title: 'Nouvelle facture créée',
+        message: `${creatorName} a créé la facture N°${result.invoice_number}`,
+        relatedEntityType: 'invoice',
+        relatedEntityId: result.id,
+        excludeUserId: (req as any).user?.id
+      });
+    } catch (notifError) {
+      logger.error('Error sending notifications:', notifError);
+    }
 
     res.status(201).json(result);
   } catch (error: any) {
