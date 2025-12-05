@@ -249,15 +249,17 @@ export function QuotationManagement() {
       // Show stock warnings if any
       if (data.stockWarnings && data.stockWarnings.length > 0) {
         // Show a warning toast with the first warning
-        toast.warning(`Stock insuffisant: ${data.stockWarnings[0]}`, {
+        toast(`⚠️ Stock insuffisant: ${data.stockWarnings[0]}`, {
           duration: 6000,
+          style: { background: '#FEF3C7', color: '#92400E', border: '1px solid #F59E0B' }
         })
 
         // Log all warnings to console for reference
         if (data.stockWarnings.length > 1) {
           console.warn('Stock warnings:', data.stockWarnings)
-          toast.warning(`${data.stockWarnings.length - 1} autre(s) alerte(s) de stock. Voir la console.`, {
+          toast(`⚠️ ${data.stockWarnings.length - 1} autre(s) alerte(s) de stock. Voir la console.`, {
             duration: 4000,
+            style: { background: '#FEF3C7', color: '#92400E', border: '1px solid #F59E0B' }
           })
         }
       }

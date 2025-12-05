@@ -39,6 +39,10 @@ interface ProductCustomizationModalProps {
     name: string;
     price_ht: number;
     sku?: string;
+    totalPrice?: number;
+    basePrice?: number;
+    unit_price?: number;
+    existing_custom_components?: CustomComponent[];
   };
   onConfirm: (customizedProduct: {
     product_id: string;
