@@ -173,51 +173,35 @@ export const NotificationsBell: React.FC = () => {
                 {notifications.map((notification: Notification) => (
                   <div
                     key={notification.id}
-                    className={`px-3 py-2 hover:bg-gray-50 cursor-pointer transition-colors ${
+                    className={`px-3 py-2.5 hover:bg-gray-50 cursor-pointer transition-colors ${
                       !notification.is_read ? 'bg-blue-50' : ''
                     }`}
                     onClick={() => handleNotificationClick(notification)}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 flex-1 min-w-0">
-                        {!notification.is_read && (
-                          <div className="w-2 h-2 bg-blue-600 rounded-full flex-shrink-0" />
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <p className={`text-sm truncate ${
-                            !notification.is_read ? 'font-medium text-gray-900' : 'text-gray-700'
-                          }`}>
-                            {notification.message}
-                          </p>
-                          <p className="text-xs text-gray-400">
-                            {formatTimeAgo(notification.created_at)}
-                          </p>
-                        </div>
+                    <div className="flex items-start gap-2">
+                      {!notification.is_read && (
+                        <div className="w-2 h-2 bg-blue-600 rounded-full flex-shrink-0 mt-1.5" />
+                      )}
+                      <div className="flex-1">
+                        <p className={`text-sm leading-snug ${
+                          !notification.is_read ? 'font-medium text-gray-900' : 'text-gray-700'
+                        }`}>
+                          {notification.message}
+                        </p>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          {formatTimeAgo(notification.created_at)}
+                        </p>
                       </div>
-                      <div className="flex items-center gap-1 flex-shrink-0">
-                        {!notification.is_read && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              markAsReadMutation.mutate(notification.id);
-                            }}
-                            className="p-1 text-gray-400 hover:text-blue-600 rounded"
-                            title="Marquer comme lu"
-                          >
-                            <Check className="h-4 w-4" />
-                          </button>
-                        )}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteMutation.mutate(notification.id);
-                          }}
-                          className="p-1 text-gray-400 hover:text-red-600 rounded"
-                          title="Supprimer"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteMutation.mutate(notification.id);
+                        }}
+                        className="p-1 text-gray-400 hover:text-red-600 rounded flex-shrink-0"
+                        title="Supprimer"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
                     </div>
                   </div>
                 ))}
