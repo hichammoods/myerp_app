@@ -508,9 +508,8 @@ router.post('/', authenticateToken, [
 
     // Notify all users about the new sales order
     try {
-      const creatorName = (req as any).user?.firstName && (req as any).user?.lastName
-        ? `${(req as any).user.firstName} ${(req as any).user.lastName}`
-        : 'Un utilisateur';
+      // JWT token stores name as a single field (see auth.ts line 23)
+      const creatorName = (req as any).user?.name || 'Un utilisateur';
 
       await notifyAllUsers({
         type: 'sales_order_created',
@@ -518,7 +517,7 @@ router.post('/', authenticateToken, [
         message: `${creatorName} a créé la commande N°${result.salesOrder.order_number}`,
         relatedEntityType: 'sales_order',
         relatedEntityId: result.salesOrder.id,
-        excludeUserId: (req as any).user?.userId
+        excludeUserId: (req as any).user?.id
       });
     } catch (notifError) {
       logger.error('Error sending notifications:', notifError);
