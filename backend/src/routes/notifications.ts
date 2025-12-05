@@ -199,8 +199,8 @@ export async function notifyAllUsers(params: {
   excludeUserId?: string;
 }) {
   try {
-    // Get all active users
-    let query = `SELECT id FROM users WHERE status = 'active'`;
+    // Get all users (status column doesn't exist in production)
+    let query = `SELECT id FROM users WHERE 1=1`;
     const queryParams: any[] = [];
 
     if (params.excludeUserId) {

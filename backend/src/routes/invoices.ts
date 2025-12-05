@@ -335,15 +335,14 @@ router.post('/', authenticateToken, [
 
       const invoice = invoiceResult.rows[0];
 
-      // Insert invoice items from sales order items
+      // Insert invoice items from sales order items (without customization columns that don't exist in production)
       for (const item of itemsResult.rows) {
         await client.query(
           `INSERT INTO invoice_items (
             invoice_id, product_id, product_name, product_sku,
             description, quantity, unit_price, discount_percent,
-            discount_amount, tax_rate, tax_amount, line_total,
-            is_customized, base_product_id, custom_components
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+            discount_amount, tax_rate, tax_amount, line_total
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
           [
             invoice.id,
             item.product_id,
@@ -356,10 +355,7 @@ router.post('/', authenticateToken, [
             item.discount_amount,
             item.tax_rate,
             item.tax_amount,
-            item.line_total,
-            item.is_customized || false,
-            item.base_product_id || null,
-            item.custom_components ? JSON.stringify(item.custom_components) : null,
+            item.line_total
           ]
         );
       }
