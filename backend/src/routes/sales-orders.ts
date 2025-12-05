@@ -1123,8 +1123,8 @@ router.get('/stats/overview', authenticateToken, async (req: Request, res: Respo
   try {
     // Calculate stats for all orders
     // CA Actif = total des commandes en cours (non terminées, non annulées)
-    // CA Réalisé = total des factures payées (consistent with Dashboard and Invoices page)
-    const stats = await db.query(`
+    // CA Réalisé = total des factures payées + acomptes from orders without paid invoices
+    const orderStats = await db.query(`
       SELECT
         COUNT(*) as total_orders,
         COUNT(CASE WHEN status = 'en_cours' THEN 1 END) as in_progress_count,
@@ -1137,14 +1137,36 @@ router.get('/stats/overview', authenticateToken, async (req: Request, res: Respo
           WHEN status NOT IN ('termine', 'annule') THEN total_amount
           ELSE 0
         END), 0) as active_revenue,
-        (SELECT COALESCE(SUM(CASE WHEN status = 'payee' THEN total_amount ELSE 0 END), 0)
-         FROM invoices) as realized_revenue,
         COALESCE(SUM(CASE WHEN status = 'termine' THEN total_amount ELSE 0 END), 0) as completed_revenue,
         COALESCE(AVG(total_amount), 0) as average_order_value
       FROM sales_orders
     `);
 
-    res.json(stats.rows[0]);
+    // Get CA Réalisé using the same logic as invoices stats endpoint
+    // CA Réalisé = paid invoices total + acomptes from orders without paid invoices
+    const paidInvoicesResult = await db.query(`
+      SELECT COALESCE(SUM(CASE WHEN status = 'payee' THEN total_amount ELSE 0 END), 0) as paid_invoices_total
+      FROM invoices
+    `);
+
+    const acomptesResult = await db.query(`
+      SELECT
+        COALESCE(SUM(CASE WHEN so.invoice_id IS NULL OR i.status != 'payee' THEN so.down_payment_amount ELSE 0 END), 0) as acomptes_not_in_paid_invoices
+      FROM sales_orders so
+      LEFT JOIN invoices i ON so.invoice_id = i.id
+      WHERE so.status != 'annule'
+        AND so.down_payment_amount > 0
+    `);
+
+    const paidInvoicesTotal = parseFloat(paidInvoicesResult.rows[0].paid_invoices_total || 0);
+    const acomptesNotInPaidInvoices = parseFloat(acomptesResult.rows[0].acomptes_not_in_paid_invoices || 0);
+    const realizedRevenue = paidInvoicesTotal + acomptesNotInPaidInvoices;
+
+    res.json({
+      ...orderStats.rows[0],
+      realized_revenue: realizedRevenue,
+      acomptes_received: acomptesNotInPaidInvoices
+    });
   } catch (error) {
     logger.error('Error fetching sales order statistics:', error);
     res.status(500).json({ error: 'Failed to fetch statistics' });
