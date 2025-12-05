@@ -31,7 +31,11 @@ import {
   Pencil,
   Trash2,
   CreditCard,
-  FolderOpen
+  FolderOpen,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -75,6 +79,8 @@ export function SalesOrderManagement() {
   const [filterStatus, setFilterStatus] = useState('all')
   const [selectedOrder, setSelectedOrder] = useState<any>(null)
   const [showDetailDialog, setShowDetailDialog] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize] = useState(20)
   const [statusUpdateDialog, setStatusUpdateDialog] = useState<{
     open: boolean
     orderId: string | null
@@ -110,17 +116,25 @@ export function SalesOrderManagement() {
     return () => clearTimeout(timer)
   }, [searchInput])
 
-  // Fetch sales orders
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchTerm, filterStatus])
+
+  // Fetch sales orders with pagination
   const { data: ordersData, isLoading, error } = useQuery({
-    queryKey: ['sales-orders', { search: searchTerm, status: filterStatus === 'all' ? undefined : filterStatus }],
+    queryKey: ['sales-orders', { search: searchTerm, status: filterStatus === 'all' ? undefined : filterStatus, page: currentPage, limit: pageSize }],
     queryFn: () => salesOrdersApi.getAll({
-      limit: 1000, // Fetch all orders
+      page: currentPage,
+      limit: pageSize,
       search: searchTerm || undefined,
       status: filterStatus === 'all' ? undefined : filterStatus
     })
   })
 
   const orders = ordersData?.sales_orders || []
+  const totalCount = ordersData?.total || 0
+  const totalPages = Math.ceil(totalCount / pageSize)
 
   // Fetch statistics
   const { data: statsData } = useQuery({
@@ -886,6 +900,52 @@ export function SalesOrderManagement() {
                   </DropdownMenu>
                 </div>
               ))}
+
+              {/* Pagination Controls */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between mt-6 pt-4 border-t">
+                  <div className="text-sm text-gray-500">
+                    Affichage {((currentPage - 1) * pageSize) + 1} - {Math.min(currentPage * pageSize, totalCount)} sur {totalCount} commandes
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(1)}
+                      disabled={currentPage === 1}
+                    >
+                      <ChevronsLeft className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <span className="text-sm px-3">
+                      Page {currentPage} sur {totalPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      disabled={currentPage === totalPages}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(totalPages)}
+                      disabled={currentPage === totalPages}
+                    >
+                      <ChevronsRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </CardContent>
