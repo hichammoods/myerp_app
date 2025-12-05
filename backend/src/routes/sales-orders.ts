@@ -31,7 +31,7 @@ const clearOrderCache = async () => {
 // GET all sales orders with pagination and filters
 router.get('/', authenticateToken, [
   query('page').optional().isInt({ min: 1 }),
-  query('limit').optional().isInt({ min: 1, max: 100 }),
+  query('limit').optional().isInt({ min: 1, max: 10000 }),
   query('status').optional().isIn(['en_cours', 'en_preparation', 'expedie', 'livre', 'termine', 'annule']),
   query('contact_id').optional().isUUID(),
   query('search').optional().isString(),

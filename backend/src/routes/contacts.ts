@@ -9,7 +9,7 @@ const router = Router();
 // GET all contacts with pagination and filters
 router.get('/', authenticateToken, [
   query('page').optional().isInt({ min: 1 }),
-  query('limit').optional().isInt({ min: 1, max: 100 }),
+  query('limit').optional().isInt({ min: 1, max: 10000 }),
   query('type').optional().isIn(['client', 'supplier', 'partner', 'other']),
   query('search').optional().isString(),
   query('is_active').optional().isString().isIn(['true', 'false']),

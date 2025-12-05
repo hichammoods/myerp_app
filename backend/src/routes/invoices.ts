@@ -28,7 +28,7 @@ const clearInvoiceCache = async () => {
 // GET all invoices with pagination and filters
 router.get('/', authenticateToken, [
   query('page').optional().isInt({ min: 1 }),
-  query('limit').optional().isInt({ min: 1, max: 100 }),
+  query('limit').optional().isInt({ min: 1, max: 10000 }),
   query('status').optional().isIn(['brouillon', 'envoyee', 'payee', 'en_retard', 'annulee']),
   query('contact_id').optional().isUUID(),
   query('search').optional().isString(),

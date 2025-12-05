@@ -52,7 +52,7 @@ const generateQuotationNumber = async (): Promise<string> => {
 // GET all quotations with pagination and filters
 router.get('/', authenticateToken, [
   query('page').optional().isInt({ min: 1 }),
-  query('limit').optional().isInt({ min: 1, max: 100 }),
+  query('limit').optional().isInt({ min: 1, max: 10000 }),
   query('status').optional().isIn(['draft', 'sent', 'accepted', 'rejected', 'expired']),
   query('contact_id').optional().isUUID(),
   query('sales_rep_id').optional().isUUID(),
