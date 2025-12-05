@@ -83,6 +83,8 @@ export function ContactManagement() {
     queryKey: ['contacts', searchTerm, filterType, filterStatus],
     queryFn: async () => {
       const params = new URLSearchParams()
+      // Fetch all contacts (up to 1000) to ensure complete data
+      params.append('limit', '1000')
       if (searchTerm) params.append('search', searchTerm)
       if (filterType !== 'all') params.append('type', filterType)
 

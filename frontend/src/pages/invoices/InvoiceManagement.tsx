@@ -71,6 +71,7 @@ export function InvoiceManagement() {
   const { data: invoicesData, isLoading } = useQuery({
     queryKey: ['invoices', { search: searchTerm, status: filterStatus === 'all' ? undefined : filterStatus }],
     queryFn: () => invoicesApi.getAll({
+      limit: 1000, // Fetch all invoices
       search: searchTerm || undefined,
       status: filterStatus === 'all' ? undefined : filterStatus
     })

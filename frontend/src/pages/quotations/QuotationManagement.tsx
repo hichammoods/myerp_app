@@ -80,6 +80,7 @@ export function QuotationManagement() {
   const { data: quotationsData, isLoading, error } = useQuery({
     queryKey: ['quotations', { search: searchTerm, status: filterStatus === 'all' ? undefined : filterStatus, sales_rep_id: filterSalesRep === 'all' ? undefined : filterSalesRep }],
     queryFn: () => quotationsApi.getAll({
+      limit: 1000, // Fetch all quotations
       search: searchTerm || undefined,
       status: filterStatus === 'all' ? undefined : filterStatus,
       sales_rep_id: filterSalesRep === 'all' ? undefined : filterSalesRep

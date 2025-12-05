@@ -908,6 +908,7 @@ router.delete('/:id', authenticateToken, authorizeRole('admin'), async (req: Req
 // GET quotation statistics
 router.get('/stats/overview', authenticateToken, async (req: Request, res: Response) => {
   try {
+    // Get all-time stats (removed 30 days filter for accurate totals)
     const stats = await db.query(`
       SELECT
         COUNT(*) as total_quotations,
@@ -916,13 +917,16 @@ router.get('/stats/overview', authenticateToken, async (req: Request, res: Respo
         COUNT(CASE WHEN status = 'accepted' THEN 1 END) as accepted_count,
         COUNT(CASE WHEN status = 'rejected' THEN 1 END) as rejected_count,
         COUNT(CASE WHEN status = 'expired' THEN 1 END) as expired_count,
-        SUM(CASE WHEN status = 'accepted' THEN total_amount ELSE 0 END) as accepted_revenue,
-        SUM(total_amount) as potential_revenue,
-        AVG(total_amount) as average_quotation_value,
-        (COUNT(CASE WHEN status = 'accepted' THEN 1 END)::float /
-         NULLIF(COUNT(CASE WHEN status IN ('accepted', 'rejected') THEN 1 END), 0) * 100) as conversion_rate
+        COALESCE(SUM(CASE WHEN status = 'accepted' THEN total_amount ELSE 0 END), 0) as accepted_revenue,
+        COALESCE(SUM(CASE WHEN status IN ('draft', 'sent') THEN total_amount ELSE 0 END), 0) as potential_revenue,
+        COALESCE(AVG(total_amount), 0) as average_quotation_value,
+        COALESCE(
+          (COUNT(CASE WHEN status = 'accepted' THEN 1 END)::float /
+           NULLIF(COUNT(CASE WHEN status IN ('accepted', 'rejected') THEN 1 END), 0) * 100),
+          0
+        ) as conversion_rate
       FROM quotations
-      WHERE created_at >= CURRENT_DATE - INTERVAL '30 days'
+      WHERE deleted_at IS NULL
     `);
 
     res.json(stats.rows[0]);

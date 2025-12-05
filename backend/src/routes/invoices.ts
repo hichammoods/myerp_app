@@ -531,6 +531,7 @@ router.delete('/:id', authenticateToken, authorizeRole('admin'), async (req: Req
 // GET invoice statistics
 router.get('/stats/overview', authenticateToken, async (req: Request, res: Response) => {
   try {
+    // Get all-time stats (removed 30 days filter for accurate totals)
     const stats = await db.query(`
       SELECT
         COUNT(*) as total_invoices,
@@ -539,12 +540,11 @@ router.get('/stats/overview', authenticateToken, async (req: Request, res: Respo
         COUNT(CASE WHEN status = 'payee' THEN 1 END) as paid_count,
         COUNT(CASE WHEN status = 'en_retard' THEN 1 END) as overdue_count,
         COUNT(CASE WHEN status = 'annulee' THEN 1 END) as cancelled_count,
-        SUM(CASE WHEN status = 'payee' THEN total_amount ELSE 0 END) as paid_revenue,
-        SUM(CASE WHEN status IN ('envoyee', 'en_retard') THEN amount_due ELSE 0 END) as outstanding_amount,
-        SUM(total_amount) as total_revenue,
-        AVG(total_amount) as average_invoice_value
+        COALESCE(SUM(CASE WHEN status = 'payee' THEN total_amount ELSE 0 END), 0) as paid_revenue,
+        COALESCE(SUM(CASE WHEN status IN ('envoyee', 'en_retard') THEN amount_due ELSE 0 END), 0) as outstanding_amount,
+        COALESCE(SUM(total_amount), 0) as total_revenue,
+        COALESCE(AVG(total_amount), 0) as average_invoice_value
       FROM invoices
-      WHERE invoice_date >= CURRENT_DATE - INTERVAL '30 days'
     `);
 
     res.json(stats.rows[0]);

@@ -114,6 +114,7 @@ export function SalesOrderManagement() {
   const { data: ordersData, isLoading, error } = useQuery({
     queryKey: ['sales-orders', { search: searchTerm, status: filterStatus === 'all' ? undefined : filterStatus }],
     queryFn: () => salesOrdersApi.getAll({
+      limit: 1000, // Fetch all orders
       search: searchTerm || undefined,
       status: filterStatus === 'all' ? undefined : filterStatus
     })

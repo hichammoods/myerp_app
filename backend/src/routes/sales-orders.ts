@@ -1129,7 +1129,9 @@ router.delete('/:id/payments/:paymentId', authenticateToken, async (req: Request
 // GET sales order statistics
 router.get('/stats/overview', authenticateToken, async (req: Request, res: Response) => {
   try {
-    // Calculate total payments from JSONB array
+    // Calculate stats for all orders (removed 30 days filter for accurate totals)
+    // CA Actif = total des commandes en cours (non terminées, non annulées)
+    // CA Réalisé = total des commandes terminées + acomptes reçus sur commandes en cours
     const stats = await db.query(`
       SELECT
         COUNT(*) as total_orders,
@@ -1139,20 +1141,14 @@ router.get('/stats/overview', authenticateToken, async (req: Request, res: Respo
         COUNT(CASE WHEN status = 'livre' THEN 1 END) as delivered_count,
         COUNT(CASE WHEN status = 'termine' THEN 1 END) as completed_count,
         COUNT(CASE WHEN status = 'annule' THEN 1 END) as cancelled_count,
-        SUM(CASE
-          WHEN status NOT IN ('termine', 'annule') THEN
-            total_amount - COALESCE((SELECT SUM((p->>'amount')::numeric) FROM jsonb_array_elements(payments) p), 0)
+        COALESCE(SUM(CASE
+          WHEN status NOT IN ('termine', 'annule') THEN total_amount
           ELSE 0
-        END) as active_revenue,
-        SUM(CASE
-          WHEN status = 'termine' THEN total_amount
-          WHEN status != 'annule' THEN COALESCE((SELECT SUM((p->>'amount')::numeric) FROM jsonb_array_elements(payments) p), 0)
-          ELSE 0
-        END) as realized_revenue,
-        SUM(CASE WHEN status = 'termine' THEN total_amount ELSE 0 END) as completed_revenue,
-        AVG(total_amount) as average_order_value
+        END), 0) as active_revenue,
+        COALESCE(SUM(CASE WHEN status = 'termine' THEN total_amount ELSE 0 END), 0) as realized_revenue,
+        COALESCE(SUM(CASE WHEN status = 'termine' THEN total_amount ELSE 0 END), 0) as completed_revenue,
+        COALESCE(AVG(total_amount), 0) as average_order_value
       FROM sales_orders
-      WHERE order_date >= CURRENT_DATE - INTERVAL '30 days'
     `);
 
     res.json(stats.rows[0]);
