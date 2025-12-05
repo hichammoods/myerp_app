@@ -11,22 +11,18 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
     const { limit = 50, unread_only = 'false' } = req.query;
 
     let query = `
-      SELECT
-        n.*,
-        u.first_name as creator_first_name,
-        u.last_name as creator_last_name
-      FROM notifications n
-      LEFT JOIN users u ON u.id::text = (n.message::json->>'created_by')
-      WHERE n.user_id = $1
+      SELECT *
+      FROM notifications
+      WHERE user_id = $1
     `;
 
     const params: any[] = [userId];
 
     if (unread_only === 'true') {
-      query += ` AND n.is_read = FALSE`;
+      query += ` AND is_read = FALSE`;
     }
 
-    query += ` ORDER BY n.created_at DESC LIMIT $2`;
+    query += ` ORDER BY created_at DESC LIMIT $2`;
     params.push(parseInt(limit as string));
 
     const result = await db.query(query, params);
