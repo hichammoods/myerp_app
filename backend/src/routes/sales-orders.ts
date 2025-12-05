@@ -1129,9 +1129,9 @@ router.delete('/:id/payments/:paymentId', authenticateToken, async (req: Request
 // GET sales order statistics
 router.get('/stats/overview', authenticateToken, async (req: Request, res: Response) => {
   try {
-    // Calculate stats for all orders (removed 30 days filter for accurate totals)
+    // Calculate stats for all orders
     // CA Actif = total des commandes en cours (non terminées, non annulées)
-    // CA Réalisé = total des commandes terminées + tous les paiements (acomptes) encaissés sur commandes actives
+    // CA Réalisé = total des factures payées (consistent with Dashboard and Invoices page)
     const stats = await db.query(`
       SELECT
         COUNT(*) as total_orders,
@@ -1145,13 +1145,8 @@ router.get('/stats/overview', authenticateToken, async (req: Request, res: Respo
           WHEN status NOT IN ('termine', 'annule') THEN total_amount
           ELSE 0
         END), 0) as active_revenue,
-        COALESCE(
-          SUM(CASE WHEN status = 'termine' THEN total_amount ELSE 0 END) +
-          (SELECT COALESCE(SUM((payment->>'amount')::DECIMAL), 0)
-           FROM sales_orders so2,
-           LATERAL jsonb_array_elements(COALESCE(so2.payments, '[]'::jsonb)) AS payment
-           WHERE so2.status NOT IN ('termine', 'annule')),
-        0) as realized_revenue,
+        (SELECT COALESCE(SUM(CASE WHEN status = 'payee' THEN total_amount ELSE 0 END), 0)
+         FROM invoices) as realized_revenue,
         COALESCE(SUM(CASE WHEN status = 'termine' THEN total_amount ELSE 0 END), 0) as completed_revenue,
         COALESCE(AVG(total_amount), 0) as average_order_value
       FROM sales_orders

@@ -720,7 +720,7 @@ export function SalesOrderManagement() {
           <CardContent>
             <div className="text-2xl font-bold">{formatCurrency(stats.realizedRevenue)}</div>
             <p className="text-xs text-muted-foreground mt-1">
-              Acomptes encaissés
+              Factures payées
             </p>
           </CardContent>
         </Card>
