@@ -212,7 +212,7 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
       }
     }
 
-    // Get invoice items separately
+    // Get invoice items separately - only select columns that exist in production
     const itemsQuery = `
       SELECT
         ii.id,
@@ -226,10 +226,7 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
         ii.discount_amount,
         ii.tax_rate,
         ii.tax_amount,
-        ii.line_total,
-        ii.is_customized,
-        ii.base_product_id,
-        ii.custom_components
+        ii.line_total
       FROM invoice_items ii
       WHERE ii.invoice_id = $1
       ORDER BY ii.created_at

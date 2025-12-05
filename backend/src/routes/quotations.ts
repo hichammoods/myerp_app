@@ -236,7 +236,7 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
 
     const quotation = quotationResult.rows[0];
 
-    // Get line items separately
+    // Get line items separately - only select columns that exist in production
     const linesQuery = `
       SELECT
         ql.id,
@@ -252,11 +252,7 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
         ql.tax_amount,
         ql.line_total,
         ql.notes,
-        ql.is_optional,
-        ql.is_customized,
-        ql.base_product_id,
         ql.line_number,
-        ql.section_id,
         p.images as product_images
       FROM quotation_lines ql
       LEFT JOIN products p ON ql.product_id = p.id
@@ -266,45 +262,9 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
 
     const linesResult = await db.query(linesQuery, [id]);
 
-    // Get custom components for each line if the table exists
-    const lineItems = [];
-    for (const line of linesResult.rows) {
-      let customComponents = [];
-      try {
-        const componentsQuery = `
-          SELECT
-            qlc.id,
-            qlc.component_name,
-            qlc.component_type,
-            qlc.material_id,
-            m.name as material_name,
-            qlc.finish_id,
-            f.name as finish_name,
-            qlc.quantity,
-            qlc.unit_cost,
-            qlc.upcharge_percentage,
-            qlc.notes
-          FROM quotation_line_components qlc
-          LEFT JOIN materials m ON qlc.material_id = m.id
-          LEFT JOIN finishes f ON qlc.finish_id = f.id
-          WHERE qlc.quotation_line_id = $1
-        `;
-        const componentsResult = await db.query(componentsQuery, [line.id]);
-        customComponents = componentsResult.rows;
-      } catch (err) {
-        // Table might not exist, ignore
-        logger.debug('Could not fetch custom components:', err);
-      }
-
-      lineItems.push({
-        ...line,
-        custom_components: customComponents
-      });
-    }
-
     const result = {
       ...quotation,
-      line_items: lineItems
+      line_items: linesResult.rows
     };
 
     // Cache for 10 minutes
