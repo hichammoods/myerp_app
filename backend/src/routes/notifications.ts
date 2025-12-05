@@ -1,11 +1,11 @@
 import express, { Request, Response } from 'express';
 import { db } from '../database/connection';
-import { authenticateToken, AuthRequest } from '../middleware/auth';
+import { authenticateToken } from '../middleware/auth';
 
 const router = express.Router();
 
 // Get all notifications for current user
-router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
+router.get('/', authenticateToken, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     const { limit = 50, unread_only = 'false' } = req.query;
@@ -46,7 +46,7 @@ router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
 });
 
 // Get unread count
-router.get('/unread-count', authenticateToken, async (req: AuthRequest, res: Response) => {
+router.get('/unread-count', authenticateToken, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
 
@@ -69,7 +69,7 @@ router.get('/unread-count', authenticateToken, async (req: AuthRequest, res: Res
 });
 
 // Mark notification as read
-router.patch('/:id/read', authenticateToken, async (req: AuthRequest, res: Response) => {
+router.patch('/:id/read', authenticateToken, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     const { id } = req.params;
@@ -103,7 +103,7 @@ router.patch('/:id/read', authenticateToken, async (req: AuthRequest, res: Respo
 });
 
 // Mark all notifications as read
-router.post('/mark-all-read', authenticateToken, async (req: AuthRequest, res: Response) => {
+router.post('/mark-all-read', authenticateToken, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
 
@@ -128,7 +128,7 @@ router.post('/mark-all-read', authenticateToken, async (req: AuthRequest, res: R
 });
 
 // Delete notification
-router.delete('/:id', authenticateToken, async (req: AuthRequest, res: Response) => {
+router.delete('/:id', authenticateToken, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     const { id } = req.params;

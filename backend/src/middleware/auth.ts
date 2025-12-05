@@ -5,17 +5,6 @@ import { db } from '../database/connection';
 import { redisClient } from '../database/redis';
 import { logger } from '../utils/logger';
 
-// Extend Express Request to include user
-export interface AuthRequest extends Request {
-  user?: {
-    id: string;
-    userId?: string;
-    email: string;
-    role: string;
-    name: string;
-  };
-}
-
 // JWT configuration
 const JWT_SECRET: string = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 const JWT_EXPIRY: string = process.env.JWT_EXPIRY || '365d'; // Token valid for 1 year (only logout will invalidate)
